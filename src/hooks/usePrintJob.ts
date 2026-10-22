@@ -163,6 +163,9 @@ export function usePrintJob() {
           settings_json: {
             ...settings,
             page_count: pageCount,
+            selected_pages: pageCount,
+            sheets: pageCount,
+            layout: 1,
           },
         },
       });
