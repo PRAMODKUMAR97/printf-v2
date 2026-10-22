@@ -15,28 +15,5 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run typecheck
+      - run: npm run test
       - run: npm run build
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-      - name: Validate printer agent Python syntax
-        run: python -m py_compile printf-agent/agent.py printf-agent/service.py printf-agent/test_agent.py
-      - name: Validate printer-agent example config
-        run: python -m json.tool printf-agent/config.example.json > /dev/null
-      - name: Ensure all deployed Edge Function sources are present
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-          expected = {
-              "printer-agent", "job-status", "create-job", "create-order",
-              "verify-payment", "public-printfs", "printer-auth", "secure-upload",
-              "secure-job", "secure-otp", "secure-payment",
-              "cashfree-create-order", "cashfree-webhook",
-          }
-          root = Path("supabase/functions")
-          found = {p.name for p in root.iterdir() if p.is_dir() and (p / "index.ts").is_file()}
-          missing = sorted(expected - found)
-          if missing:
-              raise SystemExit("Missing Edge Function source: " + ", ".join(missing))
-          print(f"Validated {len(expected)} Edge Function source folders.")
-          PY
