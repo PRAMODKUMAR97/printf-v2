@@ -27,6 +27,7 @@ export function PaymentScreen({ job, amount, printerName, printerLocation, onBac
   const { initiatePayment, isProcessing } = usePayment();
   const [customerName, setCustomerName] = useState('');
   const [customerMobile, setCustomerMobile] = useState('');
+  const [customerEmail, setCustomerEmail] = useState('');
   const [paymentMethod, setPaymentMethod] = useState<CheckoutPaymentMethod>('razorpay');
   const [validationError, setValidationError] = useState<string | null>(null);
   const settings = job.settings_json;
@@ -43,12 +44,17 @@ export function PaymentScreen({ job, amount, printerName, printerLocation, onBac
       setValidationError('Enter a valid mobile number with 10–15 digits.');
       return;
     }
+    if (!/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(customerEmail.trim())) {
+      setValidationError('Enter a valid email address for your print OTP.');
+      return;
+    }
     setValidationError(null);
     initiatePayment({
       jobId: job.id,
       amount,
       customerName: normalizedName,
       customerMobile: customerMobile.trim(),
+      customerEmail: customerEmail.trim().toLowerCase(),
       paymentMethod,
       onSuccess,
       onFailure: () => {},
@@ -111,6 +117,14 @@ export function PaymentScreen({ job, amount, printerName, printerLocation, onBac
             placeholder="Enter your mobile number" maxLength={20} value={customerMobile}
             onChange={(event) => { setCustomerMobile(event.target.value); setValidationError(null); }}
             disabled={isProcessing} required />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="customer-email">Email address</Label>
+          <Input id="customer-email" name="customer_email" type="email" inputMode="email" autoComplete="email"
+            placeholder="Enter your email address" maxLength={254} value={customerEmail}
+            onChange={(event) => { setCustomerEmail(event.target.value); setValidationError(null); }}
+            disabled={isProcessing} required />
+          <p className="text-xs text-muted-foreground">We’ll send your one-time print verification code here.</p>
         </div>
       </section>
 
