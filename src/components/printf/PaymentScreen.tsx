@@ -44,7 +44,7 @@ export function PaymentScreen({ job, amount, printerName, printerLocation, onBac
       setValidationError('Enter a valid mobile number with 10–15 digits.');
       return;
     }
-    if (!/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(customerEmail.trim())) {
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(customerEmail.trim())) {
       setValidationError('Enter a valid email address for your print OTP.');
       return;
     }
