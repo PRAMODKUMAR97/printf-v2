@@ -13,6 +13,7 @@ const UploadPage = lazy(() => import("./pages/flow/UploadPage"));
 const ProcessingPage = lazy(() => import("./pages/flow/ProcessingPage"));
 const SettingsPage = lazy(() => import("./pages/flow/SettingsPage"));
 const PaymentPage = lazy(() => import("./pages/flow/PaymentPage"));
+const EmailOtpPage = lazy(() => import("./pages/flow/EmailOtpPage"));
 const StatusPage = lazy(() => import("./pages/flow/StatusPage"));
 const PaymentCallback = lazy(() => import("./pages/PaymentCallback"));
 const OrdersAdminPage = lazy(() => import("./pages/admin/OrdersAdminPage"));
@@ -44,6 +45,7 @@ const App = () => (
               <Route path="/processing" element={<ProcessingPage />} />
               <Route path="/settings" element={<SettingsPage />} />
               <Route path="/payment" element={<PaymentPage />} />
+              <Route path="/verify-otp" element={<EmailOtpPage />} />
               <Route path="/status" element={<StatusPage />} />
             </Route>
             <Route path="/payment-callback" element={<PaymentCallback />} />
