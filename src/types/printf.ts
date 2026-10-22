@@ -4,25 +4,40 @@ export interface Printf {
   location: string;
   status: 'online' | 'offline' | 'maintenance';
   last_seen: string | null;
-  api_key: string;
+  api_key?: string;
   paper_level: number;
   ink_level: number;
   created_at: string;
   updated_at: string;
 }
 
+/** Pages placed on one physical sheet. */
+export type PrintLayout = 1 | 2 | 4;
+
 export interface PrintSettings {
   copies: number;
   color: boolean;
   duplex: boolean;
-  page_size: 'A4' | 'A3' | 'Letter' | 'Legal';
+  /** Always A4 — documents are auto-fitted to A4, not user selectable. */
+  page_size: 'A4';
+  /** Print edge-to-edge with no white margin (printer permitting). */
+  borderless: boolean;
+  /** 1 = one page per sheet, 2 = 2-in-1, 4 = 4-in-1. */
+  layout: PrintLayout;
+  /** Empty string = all pages. Otherwise e.g. "1-3,5". */
+  page_range: string;
   page_count?: number;
+  /** Pages actually selected by page_range (used for billing). */
+  selected_pages?: number;
+  /** Physical sheets per copy after the N-up layout is applied (billing unit). */
+  sheets?: number;
+  fit_to_page?: boolean;
 }
 
 export interface PrintJob {
   id: string;
   printf_id: string | null;
-  file_path: string;
+  file_path?: string;
   file_name: string;
   file_size: number;
   settings_json: PrintSettings;
@@ -31,15 +46,6 @@ export interface PrintJob {
   expiry_time: string;
   created_at: string;
   updated_at: string;
-}
-
-export interface OTP {
-  id: string;
-  job_id: string;
-  otp_code: string;
-  used: boolean;
-  expires_at: string;
-  created_at: string;
 }
 
 export interface Payment {
@@ -61,4 +67,4 @@ export interface Log {
   created_at: string;
 }
 
-export type UploadStep = 'printf' | 'upload' | 'processing' | 'settings' | 'phone' | 'payment' | 'otp' | 'complete';
+export type UploadStep = 'printf' | 'upload' | 'processing' | 'settings' | 'payment' | 'status';
