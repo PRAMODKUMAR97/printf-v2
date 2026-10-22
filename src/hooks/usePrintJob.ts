@@ -84,7 +84,10 @@ export function usePrintJob() {
       setUploadProgress(50);
       
       // Upload to storage
-      const fileExt = selectedFile.name.split('.').pop();
+      const fileExt = (selectedFile.name.split('.').pop() || '').toLowerCase();
+      if (!['pdf', 'doc', 'docx', 'png', 'jpg', 'jpeg'].includes(fileExt)) {
+        throw new Error('Unsupported file extension. Upload PDF, Word, PNG, or JPEG files.');
+      }
       const fileName = `${crypto.randomUUID()}.${fileExt}`;
       const filePath = `jobs/${fileName}`;
 
