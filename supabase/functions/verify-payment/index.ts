@@ -60,11 +60,10 @@ serve(async (req) => {
     }
     if (!payment) return response({ error: "Payment order does not match this print job" }, 404);
 
-    // Confirm the payment against Razorpay's API, including captured state and amount.
-    const auth = btoa(`${razorpayKeyId}:${razorpayKeySecret}`);
+    const auth = btoa(\`\${razorpayKeyId}:\${razorpayKeySecret}\`);
     const paymentResponse = await fetch(
-      `https://api.razorpay.com/v1/payments/${encodeURIComponent(razorpay_payment_id)}`,
-      { headers: { Authorization: `Basic ${auth}` } },
+      \`https://api.razorpay.com/v1/payments/\${encodeURIComponent(razorpay_payment_id)}\`,
+      { headers: { Authorization: \`Basic \${auth}\` } },
     );
     if (!paymentResponse.ok) {
       console.error("Razorpay payment lookup returned status:", paymentResponse.status);
@@ -81,8 +80,7 @@ serve(async (req) => {
     }
 
     const { data: job, error: jobLookupError } = await supabase.from("print_jobs")
-      .select("id, status, expiry_time, locked")
-      .eq("id", job_id).maybeSingle();
+      .select("id, status, expiry_time, locked").eq("id", job_id).maybeSingle();
     if (jobLookupError || !job) return response({ error: "Print job not found" }, 404);
 
     const { error: markPaymentError } = await supabase.from("payments")
@@ -91,12 +89,9 @@ serve(async (req) => {
       console.error("Could not mark payment completed:", markPaymentError.message);
       return response({ error: "Could not record verified payment" }, 500);
     }
-    // Keep the order ledger accurate even if the physical job needs manual review.
     const { error: markOrderError } = await supabase.from("print_orders").update({
-      payment_status: "paid",
-      razorpay_order_id,
-      razorpay_payment_id,
-    }).eq("razorpay_order_id", razorpay_order_id).eq("payment_method", "razorpay");
+      payment_status: "paid", razorpay_order_id, razorpay_payment_id,
+    }).eq("print_job_id", job_id).eq("payment_method", "razorpay");
     if (markOrderError) {
       console.error("Could not update PrintF order:", markOrderError.message);
       return response({ error: "Payment verified, but order status needs administrator review" }, 500);
@@ -105,17 +100,16 @@ serve(async (req) => {
     let jobStatus = job.status;
     let finalExpiry = job.expiry_time;
     if (job.status === "pending") {
-      // Payment success must NOT make the job printable. OTP verification does that.
       const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
-      const { data: extended, error: extendError } = await supabase.from("print_jobs")
-        .update({ expiry_time: expiresAt, locked: false })
+      const { data: released, error: releaseError } = await supabase.from("print_jobs")
+        .update({ status: "ready", expiry_time: expiresAt, locked: false })
         .eq("id", job_id).eq("status", "pending").select("id, status, expiry_time").maybeSingle();
-      if (extendError || !extended) {
-        console.error("Could not extend verified job expiry:", extendError?.message ?? "job state changed concurrently");
-        return response({ error: "Payment was verified, but the job needs administrator review" }, 409);
+      if (releaseError || !released) {
+        console.error("Could not release paid job:", releaseError?.message ?? "job state changed");
+        return response({ error: "Payment verified, but the job needs administrator review" }, 409);
       }
-      jobStatus = extended.status;
-      finalExpiry = extended.expiry_time;
+      jobStatus = released.status;
+      finalExpiry = released.expiry_time;
     } else if (!["ready", "printing", "completed"].includes(job.status)) {
       await supabase.from("logs").insert({
         type: "warning", message: "Payment captured but print job requires manual review",
@@ -125,16 +119,10 @@ serve(async (req) => {
     }
 
     await supabase.from("logs").insert({
-      type: "success",
-      message: "Payment verified with Razorpay",
-      job_id,
+      type: "success", message: "Payment verified with Razorpay", job_id,
       metadata: { razorpay_payment_id, razorpay_order_id, job_status: jobStatus, expiry_time: finalExpiry },
     });
-
-    return response({
-      success: true, message: "Payment verified successfully",
-      job_status: jobStatus, expiry_time: finalExpiry,
-    });
+    return response({ success: true, message: "Payment verified successfully", job_status: jobStatus, expiry_time: finalExpiry });
   } catch (error) {
     console.error("verify-payment failed:", error instanceof Error ? error.message : "unknown");
     return response({ error: "Invalid request or internal server error" }, 500);
