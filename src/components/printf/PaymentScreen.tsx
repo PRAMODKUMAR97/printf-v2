@@ -1,7 +1,5 @@
 import { PrintJob } from '@/types/printf';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { ArrowLeft, Loader2, Lock, Shield, Banknote, CreditCard } from 'lucide-react';
 import { usePayment } from '@/hooks/usePayment';
 import { PaymentTrustBadges } from './payment/PaymentTrustBadges';
@@ -20,8 +18,6 @@ interface PaymentScreenProps {
   email: string;
   phone?: string;
   customerName: string;
-  onCustomerNameChange: (value: string) => void;
-  onCustomerMobileChange: (value: string) => void;
   printerName?: string;
   printerLocation?: string;
   onBack: () => void;
@@ -29,7 +25,7 @@ interface PaymentScreenProps {
 }
 
 export function PaymentScreen({
-  job, amount, email, phone, customerName, onCustomerNameChange, onCustomerMobileChange,
+  job, amount, email, phone, customerName,
   printerName, printerLocation, onBack, onSuccess,
 }: PaymentScreenProps) {
   const { initiatePayment, isProcessing } = usePayment();
@@ -113,7 +109,7 @@ export function PaymentScreen({
       )}
 
       <div className="space-y-4">
-        <PaymentUserInfo email={email} phone={phone} onEditEmail={onBack} />
+        <PaymentUserInfo email={email} customerName={customerName} phone={phone} onEditEmail={onBack} />
         <PaymentOrderSummary job={job} printerName={printerName} printerLocation={printerLocation} />
         <PaymentPriceBreakdown
           pageCount={settings.page_count || pageCount}
@@ -124,41 +120,6 @@ export function PaymentScreen({
         <PaymentConfidenceSection />
       </div>
 
-      <div className="bg-card border border-border rounded-xl p-4 space-y-4">
-        <div>
-          <h3 className="font-semibold text-sm text-foreground">Customer details</h3>
-          <p className="text-xs text-muted-foreground mt-1">Used for your order record and collection.</p>
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="printf-customer-name" className="text-sm">Full name</Label>
-          <Input
-            id="printf-customer-name"
-            name="customer_name"
-            autoComplete="name"
-            placeholder="Enter your name"
-            maxLength={100}
-            value={customerName}
-            onChange={(event) => { onCustomerNameChange(event.target.value); setValidationError(''); }}
-            disabled={isProcessing}
-          />
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="printf-customer-mobile" className="text-sm">Mobile number</Label>
-          <Input
-            id="printf-customer-mobile"
-            name="customer_mobile"
-            type="tel"
-            inputMode="tel"
-            autoComplete="tel"
-            placeholder="Enter your mobile number"
-            maxLength={20}
-            value={phone || ''}
-            onChange={(event) => { onCustomerMobileChange(event.target.value); setValidationError(''); }}
-            disabled={isProcessing}
-          />
-        </div>
-        {validationError && <p className="text-sm text-destructive" role="alert">{validationError}</p>}
-      </div>
 
       <div className="space-y-3">
         <h3 className="text-sm font-semibold text-foreground">Payment method</h3>
