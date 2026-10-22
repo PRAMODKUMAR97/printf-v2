@@ -60,10 +60,10 @@ serve(async (req) => {
     }
     if (!payment) return response({ error: "Payment order does not match this print job" }, 404);
 
-    const auth = btoa(\`\${razorpayKeyId}:\${razorpayKeySecret}\`);
+    const auth = "Basic " + btoa(razorpayKeyId + ":" + razorpayKeySecret);
     const paymentResponse = await fetch(
-      \`https://api.razorpay.com/v1/payments/\${encodeURIComponent(razorpay_payment_id)}\`,
-      { headers: { Authorization: \`Basic \${auth}\` } },
+      "https://api.razorpay.com/v1/payments/" + encodeURIComponent(razorpay_payment_id),
+      { headers: { Authorization: auth } },
     );
     if (!paymentResponse.ok) {
       console.error("Razorpay payment lookup returned status:", paymentResponse.status);
