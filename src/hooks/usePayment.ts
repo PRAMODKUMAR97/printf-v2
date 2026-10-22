@@ -12,6 +12,7 @@ interface PaymentOptions {
   amount: number;
   customerName: string;
   customerMobile: string;
+  customerEmail: string;
   paymentMethod: CheckoutPaymentMethod;
   onSuccess: () => void;
   onFailure: () => void;
@@ -30,7 +31,7 @@ export function usePayment() {
   }), []);
 
   const initiatePayment = useCallback(async ({
-    jobId, amount, customerName, customerMobile, paymentMethod, onSuccess, onFailure, onCancel,
+    jobId, amount, customerName, customerMobile, customerEmail, paymentMethod, onSuccess, onFailure, onCancel,
   }: PaymentOptions) => {
     setIsProcessing(true);
     try {
@@ -46,6 +47,7 @@ export function usePayment() {
 
       localStorage.setItem('printf_payment_job_id', jobId);
       localStorage.setItem('printf_last_payment_method', paymentMethod);
+      localStorage.setItem('printf_customer_email', customerEmail.trim().toLowerCase());
 
       const { data, error } = await supabase.functions.invoke('create-order', {
         body: {
@@ -53,6 +55,7 @@ export function usePayment() {
           amount,
           customer_name: customerName.trim(),
           customer_mobile: customerMobile.trim(),
+          customer_email: customerEmail.trim().toLowerCase(),
           payment_method: paymentMethod,
           callback_url: window.location.origin + '/payment-callback',
         },
@@ -114,9 +117,9 @@ export function usePayment() {
               onFailure();
             } else {
               toast.success('Payment successful! Your job was sent to the printer.');
-              localStorage.removeItem('printf_payment_job_id');
               localStorage.removeItem('printf_order_id');
               localStorage.removeItem('printf_razorpay_order_id');
+              // Keep the job ID and email until OTP verification releases the job.
               onSuccess();
             }
           } catch (err) {
