@@ -122,13 +122,6 @@ serve(async (req) => {
     }
 
     await supabase.from("logs").insert({
-        type: "warning", message: "Payment captured but print job requires manual review",
-        job_id, metadata: { razorpay_payment_id, razorpay_order_id, job_status: job.status },
-      });
-      return response({ error: "Payment was captured, but the job is no longer printable. Contact support." }, 409);
-    }
-
-    await supabase.from("logs").insert({
       type: "success", message: "Payment verified with Razorpay; awaiting email OTP release", job_id,
       metadata: { razorpay_payment_id, razorpay_order_id, job_status: jobStatus, expiry_time: finalExpiry },
     });
