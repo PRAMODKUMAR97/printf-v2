@@ -16,8 +16,7 @@ function validCustomer(name: unknown, mobile: unknown) {
   return digits.length >= 8 && digits.length <= 15;
 }
 function calculateAmount(settingsValue: unknown) {
-  const settings = settingsValue && typeof settingsValue === "object"
-    ? settingsValue as Record<string, unknown> : {};
+  const settings = settingsValue && typeof settingsValue === "object" ? settingsValue as Record<string, unknown> : {};
   const copies = Number(settings.copies ?? 1);
   const layout = Number(settings.layout ?? 1);
   const selectedPages = Number(settings.selected_pages ?? settings.page_count ?? 1);
@@ -43,7 +42,7 @@ function checkoutResponse(order: any, payment: any, keyId: string, callbackUrl?:
       amount: Math.round(Number(payment.amount) * 100),
       currency: "INR",
       name: "PrintF",
-      description: \`Print Job #\${order.order_number}\`,
+      description: "Print Job #" + order.order_number,
       order_id: order.razorpay_order_id,
     },
   };
@@ -96,7 +95,7 @@ serve(async (req) => {
       if (priorPaymentError || !priorPayment) return response({ error: "Existing payment order could not be resumed" }, 409);
       const origin = req.headers.get("origin");
       return response(checkoutResponse(existing, priorPayment, razorpayKeyId,
-        callback_url || (origin ? \`\${origin}/payment-callback\` : undefined)));
+        callback_url || (origin ? origin + "/payment-callback" : undefined)));
     }
 
     const { data: job, error: jobError } = await supabase.from("print_jobs")
@@ -146,12 +145,12 @@ serve(async (req) => {
     const razorpayKeyId = Deno.env.get("RAZORPAY_KEY_ID");
     const razorpayKeySecret = Deno.env.get("RAZORPAY_KEY_SECRET");
     if (!razorpayKeyId || !razorpayKeySecret) return response({ error: "Payment service is not configured" }, 503);
-    const authHeader = btoa(\`\${razorpayKeyId}:\${razorpayKeySecret}\`);
+    const authHeader = "Basic " + btoa(razorpayKeyId + ":" + razorpayKeySecret);
     const orderResponse = await fetch("https://api.razorpay.com/v1/orders", {
       method: "POST",
-      headers: { "Content-Type": "application/json", "Authorization": \`Basic \${authHeader}\` },
+      headers: { "Content-Type": "application/json", "Authorization": authHeader },
       body: JSON.stringify({ amount: Math.round(expectedAmount * 100), currency: "INR",
-        receipt: \`job_\${job_id.slice(0, 8)}\`, notes: { job_id, payment_method: "razorpay" } }),
+        receipt: "job_" + job_id.slice(0, 8), notes: { job_id, payment_method: "razorpay" } }),
     });
     const orderText = await orderResponse.text();
     if (!orderResponse.ok) {
@@ -189,7 +188,7 @@ serve(async (req) => {
       metadata: { order_number: printOrder.order_number, gateway_ref: razorpayOrder.id, amount: expectedAmount } });
     const origin = req.headers.get("origin");
     return response(checkoutResponse(printOrder, payment, razorpayKeyId,
-      callback_url || (origin ? \`\${origin}/payment-callback\` : undefined)));
+      callback_url || (origin ? origin + "/payment-callback" : undefined)));
   } catch (error) {
     console.error("create-order failed:", error instanceof Error ? error.message : "unknown");
     return response({ error: "Invalid request or internal server error" }, 500);
