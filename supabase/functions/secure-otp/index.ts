@@ -45,7 +45,7 @@ serve(async (req) => {
       if (!resendKey) return json({ error: "Email OTP service is not configured" }, 503);
 
       const { data: order, error: orderLookupError } = await supabase.from("print_orders")
-        .select("id, payment_method, payment_status, order_status, customer_email")
+        .select("id, order_number, payment_method, payment_status, order_status, customer_email")
         .eq("print_job_id", jobId).order("created_at", { ascending: false }).limit(1).maybeSingle();
       if (orderLookupError) {
         console.error("OTP order lookup failed:", orderLookupError.message);
@@ -145,7 +145,7 @@ serve(async (req) => {
         return json({ error: "Incorrect verification code" }, 400);
       }
       const { data: order, error: orderLookupError } = await supabase.from("print_orders")
-        .select("id, payment_method, payment_status, order_status, customer_email")
+        .select("id, order_number, payment_method, payment_status, order_status, customer_email")
         .eq("print_job_id", jobId).order("created_at", { ascending: false }).limit(1).maybeSingle();
       if (orderLookupError) {
         console.error("OTP verification order lookup failed:", orderLookupError.message);
