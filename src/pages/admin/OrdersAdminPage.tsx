@@ -60,8 +60,8 @@ export default function OrdersAdminPage() {
         toast.error('A completed print job cannot be moved back to an earlier status.');
         return;
       }
-      if (job.status === 'printing' && nextStatus === 'cancelled') {
-        toast.error('This job is already printing. Let it finish or mark it failed if printing actually stopped.');
+      if (job.status === 'printing' && !['printing', 'completed', 'failed'].includes(nextStatus)) {
+        toast.error('A job already printing cannot be moved back to an earlier state. Let it finish or mark it failed if printing actually stopped.');
         return;
       }
       if (['failed', 'expired'].includes(job.status) && !['failed', 'cancelled'].includes(nextStatus)) {
