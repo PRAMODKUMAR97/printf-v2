@@ -116,7 +116,7 @@ export function usePayment() {
               toast.error(verification?.error || 'Payment verification failed');
               onFailure();
             } else {
-              toast.success('Payment successful! Your job was sent to the printer.');
+              toast.success('Payment verified. Check your email for the print verification code.');
               localStorage.removeItem('printf_order_id');
               localStorage.removeItem('printf_razorpay_order_id');
               // Keep the job ID and email until OTP verification releases the job.
