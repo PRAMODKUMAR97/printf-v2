@@ -49,30 +49,57 @@ class PrintFService(win32serviceutil.ServiceFramework):
             self.agent.stop()
     
     def SvcDoRun(self):
-        """Main service run method."""
+        """Run the agent and restart it if it exits unexpectedly."""
         servicemanager.LogMsg(
             servicemanager.EVENTLOG_INFORMATION_TYPE,
             servicemanager.PYS_SERVICE_STARTED,
             (self._svc_name_, '')
         )
-        
+
+        service_dir = os.path.dirname(os.path.abspath(__file__))
+        os.chdir(service_dir)
+
         try:
-            # Change to service directory
-            service_dir = os.path.dirname(os.path.abspath(__file__))
-            os.chdir(service_dir)
-            
-            # Create and run agent
-            self.agent = PrintFAgent()
-            self.agent.run()
-            
-        except Exception as e:
-            servicemanager.LogErrorMsg(f"PrintF Agent error: {e}")
-        
-        servicemanager.LogMsg(
-            servicemanager.EVENTLOG_INFORMATION_TYPE,
-            servicemanager.PYS_SERVICE_STOPPED,
-            (self._svc_name_, '')
-        )
+            while win32event.WaitForSingleObject(self.hWaitStop, 0) != win32event.WAIT_OBJECT_0:
+                try:
+                    self.agent = PrintFAgent()
+                    self.agent.run()
+
+                    # A normal return is expected only after a stop request.
+                    if win32event.WaitForSingleObject(self.hWaitStop, 0) == win32event.WAIT_OBJECT_0:
+                        break
+                    servicemanager.LogErrorMsg(
+                        "PrintF Agent exited unexpectedly; restarting in 5 seconds."
+                    )
+                except Exception as e:
+                    servicemanager.LogErrorMsg(
+                        "PrintF Agent crashed; restarting in 5 seconds: {}".format(e)
+                    )
+                finally:
+                    if self.agent:
+                        try:
+                            self.agent.stop()
+                        except Exception:
+                            pass
+                    self.agent = None
+
+                # Wait interruptibly so a service-stop request is never delayed.
+                if win32event.WaitForSingleObject(self.hWaitStop, 5000) == win32event.WAIT_OBJECT_0:
+                    break
+        finally:
+            if self.agent:
+                try:
+                    self.agent.stop()
+                except Exception:
+                    pass
+                self.agent = None
+
+            servicemanager.LogMsg(
+                servicemanager.EVENTLOG_INFORMATION_TYPE,
+                servicemanager.PYS_SERVICE_STOPPED,
+                (self._svc_name_, '')
+            )
+
 
 
 def main():
