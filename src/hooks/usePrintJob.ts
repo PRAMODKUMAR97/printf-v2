@@ -26,6 +26,9 @@ export function usePrintJob() {
   const [selectedPrintfId, setSelectedPrintfId] = useState<string | null>(null);
   const [amount, setAmount] = useState(0);
   const [email, setEmail] = useState('');
+  const [customerName, setCustomerName] = useState('');
+  const [customerMobile, setCustomerMobile] = useState('');
+  const [orderConfirmation, setOrderConfirmation] = useState<{ payment_method: 'razorpay' | 'cod'; order_number: number | null; amount: number } | null>(null);
   const [pageCount, setPageCount] = useState(1);
   const [processingStage, setProcessingStage] = useState<ProcessingStage>('verifying');
 
@@ -104,7 +107,7 @@ export function usePrintJob() {
 
       // Calculate initial amount based on pages
       const pricePerPage = settings.color ? PRICE_PER_PAGE_COLOR : PRICE_PER_PAGE_BW;
-      setAmount(pages * pricePerPage);
+      setAmount(pages * (settings.copies || 1) * pricePerPage);
 
       // Store file path for later
       setJob({
@@ -171,7 +174,7 @@ export function usePrintJob() {
 
       // Calculate final amount
       const pricePerPage = settings.color ? PRICE_PER_PAGE_COLOR : PRICE_PER_PAGE_BW;
-      const calculatedAmount = pageCount * pricePerPage;
+      const calculatedAmount = pageCount * (settings.copies || 1) * pricePerPage;
       setAmount(calculatedAmount);
 
       // Map to our types
@@ -197,62 +200,34 @@ export function usePrintJob() {
     setStep('payment');
   }, []);
 
-  const handlePaymentSuccess = useCallback(async (otpCode?: string) => {
+  const handlePaymentSuccess = useCallback(async (
+    _otpCode?: string,
+    details?: { payment_method?: 'razorpay' | 'cod'; order_number?: number; amount?: number; expires_in_seconds?: number }
+  ) => {
     if (!job) return;
-
-    try {
-      // OTP is already generated on the backend after payment verification
-      // If OTP code is passed from the payment response, use it
-      if (otpCode) {
-        // Fetch the OTP from database to get full record
-        const { data: otpData, error: otpError } = await supabase
-          .from('otps')
-          .select()
-          .eq('job_id', job.id)
-          .order('created_at', { ascending: false })
-          .limit(1)
-          .single();
-
-        if (otpError) {
-          // If we can't fetch, create a mock OTP object with the code from server
-          setOtp({
-            id: '',
-            job_id: job.id,
-            otp_code: otpCode,
-            created_at: new Date().toISOString(),
-            expires_at: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
-            used: false,
-          });
-        } else {
-          setOtp(otpData as OTP);
-        }
-      } else {
-        // Fallback: fetch latest OTP for this job
-        const { data: otpData, error: otpError } = await supabase
-          .from('otps')
-          .select()
-          .eq('job_id', job.id)
-          .order('created_at', { ascending: false })
-          .limit(1)
-          .single();
-
-        if (otpError) throw otpError;
-        setOtp(otpData as OTP);
-      }
-      
-      setStep('otp');
-    } catch (error) {
-      console.error('Error fetching OTP:', error);
-      toast.error('Failed to retrieve OTP');
-    }
-  }, [job]);
+    const expiresIn = Math.max(60, Number(details?.expires_in_seconds) || 300);
+    setOrderConfirmation({
+      payment_method: details?.payment_method === 'cod' ? 'cod' : 'razorpay',
+      order_number: Number(details?.order_number) || null,
+      amount: Number(details?.amount) || amount,
+    });
+    setOtp({
+      id: '',
+      job_id: job.id,
+      otp_code: '',
+      created_at: new Date().toISOString(),
+      expires_at: new Date(Date.now() + expiresIn * 1000).toISOString(),
+      used: false,
+    });
+    setStep('otp');
+  }, [job, amount]);
 
   const updateSettings = useCallback((newSettings: Partial<PrintSettings>) => {
     setSettings((prev) => {
       const updated = { ...prev, ...newSettings };
       // Recalculate amount when color changes
       const pricePerPage = updated.color ? PRICE_PER_PAGE_COLOR : PRICE_PER_PAGE_BW;
-      setAmount(pageCount * pricePerPage);
+      setAmount(pageCount * (updated.copies || 1) * pricePerPage);
       return updated;
     });
   }, [pageCount]);
@@ -267,6 +242,9 @@ export function usePrintJob() {
     setSelectedPrintfId(null);
     setAmount(0);
     setEmail('');
+    setCustomerName('');
+    setCustomerMobile('');
+    setOrderConfirmation(null);
     setPageCount(1);
     setProcessingStage('verifying');
   }, []);
@@ -284,6 +262,11 @@ export function usePrintJob() {
     selectedPrintfId,
     email,
     setEmail,
+    customerName,
+    setCustomerName,
+    customerMobile,
+    setCustomerMobile,
+    orderConfirmation,
     pageCount,
     processingStage,
     selectPrintf,
