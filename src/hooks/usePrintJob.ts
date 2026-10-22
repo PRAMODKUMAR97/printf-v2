@@ -5,7 +5,7 @@ import { toast } from 'sonner';
 import { ProcessingStage } from '@/components/printf/FileProcessing';
 import { getDocument, GlobalWorkerOptions } from 'pdfjs-dist';
 
-GlobalWorkerOptions.workerSrc = \`//cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js\`;
+GlobalWorkerOptions.workerSrc = '//cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 
 const DEFAULT_SETTINGS: PrintSettings = {
   copies: 1,
@@ -21,7 +21,6 @@ const DEFAULT_SETTINGS: PrintSettings = {
 const PRICE_PER_PAGE_BW = 2;
 const PRICE_PER_PAGE_COLOR = 10;
 
-/** Count how many pages a range string like "1-3,5" selects. Empty = all. */
 export function countSelectedPages(range: string, total: number): number {
   const trimmed = (range || '').trim();
   if (!trimmed) return total;
@@ -74,7 +73,7 @@ export function usePrintJob() {
       const buffer = await pdfFile.arrayBuffer();
       const pdf = await getDocument({ data: new Uint8Array(buffer) }).promise;
       const pages = pdf.numPages;
-      pdf.destroy();
+      await pdf.destroy();
       return Math.max(1, pages);
     } catch (error) {
       console.error('Failed to read PDF page count:', error);
@@ -103,22 +102,17 @@ export function usePrintJob() {
       }
       setPageCount(pages);
       setUploadProgress(30);
-
       setProcessingStage('processing');
       await new Promise(resolve => setTimeout(resolve, 600));
       setUploadProgress(50);
 
       const fileExt = selectedFile.name.split('.').pop()?.toLowerCase() || 'pdf';
-      const fileName = \`\${crypto.randomUUID()}.\${fileExt}\`;
-      const filePath = \`jobs/\${fileName}\`;
-
-      const { error: uploadError } = await supabase.storage
-        .from('print-files')
-        .upload(filePath, selectedFile, {
-          cacheControl: '3600',
-          upsert: false,
-        });
-
+      const fileName = crypto.randomUUID() + '.' + fileExt;
+      const filePath = 'jobs/' + fileName;
+      const { error: uploadError } = await supabase.storage.from('print-files').upload(filePath, selectedFile, {
+        cacheControl: '3600',
+        upsert: false,
+      });
       if (uploadError) throw uploadError;
       setUploadProgress(70);
 
@@ -129,7 +123,6 @@ export function usePrintJob() {
       setUploadProgress(100);
 
       setAmount(computeAmount(settings, pages));
-
       setJob({
         id: '',
         printf_id: selectedPrintfId,
@@ -146,7 +139,7 @@ export function usePrintJob() {
 
       await new Promise(resolve => setTimeout(resolve, 800));
       setStep('settings');
-      toast.success(\`\${pages} page\${pages > 1 ? 's' : ''} detected\`);
+      toast.success(pages + ' page' + (pages > 1 ? 's' : '') + ' detected');
     } catch (error) {
       console.error('Error processing file:', error);
       toast.error('Failed to process file');
@@ -168,7 +161,6 @@ export function usePrintJob() {
       toast.error('No file selected');
       return;
     }
-
     setIsLoading(true);
     try {
       const selectedPages = countSelectedPages(settings.page_range, pageCount);
@@ -189,19 +181,16 @@ export function usePrintJob() {
           },
         },
       });
-
       if (response.error) throw response.error;
-      const { job: jobData } = response.data;
+      const jobData = response.data?.job;
       if (!jobData) throw new Error('No job data returned');
-
       setAmount(computeAmount(settings, pageCount));
       const mappedJob: PrintJob = {
         ...jobData,
         printf_id: selectedPrintfId,
-        settings_json: jobData.settings_json as unknown as PrintSettings,
+        settings_json: jobData.settings_json as PrintSettings,
         status: jobData.status as PrintJob['status'],
       };
-
       setJob(mappedJob);
       setStep('payment');
       toast.success('Ready for payment!');
@@ -244,25 +233,11 @@ export function usePrintJob() {
     setProcessingStage('verifying');
   }, []);
 
+  const proceedToPayment = useCallback(() => setStep('payment'), []);
+
   return {
-    step,
-    setStep,
-    file,
-    settings,
-    job,
-    amount,
-    isLoading,
-    uploadProgress,
-    selectedPrintfId,
-    pageCount,
-    processingStage,
-    selectPrintf,
-    uploadFile,
-    removeFile,
-    createJob,
-    proceedToPayment: useCallback(() => setStep('payment'), []),
-    updateSettings,
-    handlePaymentSuccess,
-    reset,
+    step, setStep, file, settings, job, amount, isLoading, uploadProgress,
+    selectedPrintfId, pageCount, processingStage, selectPrintf, uploadFile,
+    removeFile, createJob, proceedToPayment, updateSettings, handlePaymentSuccess, reset,
   };
 }
