@@ -9,6 +9,11 @@ if errorlevel 1 goto error
 echo Installing PrintF Agent as an automatic Windows service...
 py service.py --startup auto install
 if errorlevel 1 goto error
+echo Configuring Windows service recovery...
+sc failure PrintFAgent reset= 86400 actions= restart/5000/restart/15000/restart/60000
+if errorlevel 1 goto error
+sc failureflag PrintFAgent 1
+if errorlevel 1 goto error
 py service.py start
 if errorlevel 1 goto error
 echo.
