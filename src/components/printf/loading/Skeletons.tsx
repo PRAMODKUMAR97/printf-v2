@@ -1,3 +1,4 @@
+import { RouteSkeleton } from "./components/printf/loading/Skeletons";
 import { Loader2 } from 'lucide-react';
 
 export function Shimmer({ className = '' }: { className?: string }) {
