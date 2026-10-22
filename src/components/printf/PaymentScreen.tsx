@@ -116,7 +116,7 @@ export function PaymentScreen({
         <PaymentUserInfo email={email} phone={phone} onEditEmail={onBack} />
         <PaymentOrderSummary job={job} printerName={printerName} printerLocation={printerLocation} />
         <PaymentPriceBreakdown
-          pageCount={settings.selected_pages || pageCount}
+          pageCount={settings.page_count || pageCount}
           isColor={settings.color}
           copies={settings.copies || 1}
           totalAmount={amount}
