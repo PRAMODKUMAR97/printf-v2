@@ -57,7 +57,7 @@ serve(async (req) => {
     const method = payment_method ?? "razorpay";
     if (typeof job_id !== "string" || !UUID_RE.test(job_id)) return response({ error: "Valid job_id is required" }, 400);
     if (!validCustomer(customer_name, customer_mobile)) return response({ error: "A valid customer name and mobile number are required" }, 400);
-    if (typeof customer_email !== "string" || customer_email.trim().length > 254 || !/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(customer_email.trim())) return response({ error: "A valid customer email is required for print OTP verification" }, 400);
+    if (typeof customer_email !== "string" || customer_email.trim().length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(customer_email.trim())) return response({ error: "A valid customer email is required for print OTP verification" }, 400);
     if (!["razorpay", "cod"].includes(method)) return response({ error: "Unsupported payment method" }, 400);
     if (typeof amount !== "number" || !Number.isFinite(amount) || amount < 1 || amount > 100000) {
       return response({ error: "Valid payment amount is required" }, 400);
