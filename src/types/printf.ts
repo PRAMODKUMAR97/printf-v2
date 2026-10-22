@@ -67,4 +67,4 @@ export interface Log {
   created_at: string;
 }
 
-export type UploadStep = 'printf' | 'upload' | 'processing' | 'settings' | 'payment' | 'status';
+export type UploadStep = 'printf' | 'upload' | 'processing' | 'settings' | 'payment' | 'otp' | 'status';
