@@ -56,10 +56,11 @@ serve(async (req) => {
 
   try {
     const body = await req.json();
-    const { job_id, amount, customer_name, customer_mobile, payment_method, callback_url } = body ?? {};
+    const { job_id, amount, customer_name, customer_mobile, customer_email, payment_method, callback_url } = body ?? {};
     const method = payment_method ?? "razorpay";
     if (typeof job_id !== "string" || !UUID_RE.test(job_id)) return response({ error: "Valid job_id is required" }, 400);
     if (!validCustomer(customer_name, customer_mobile)) return response({ error: "A valid customer name and mobile number are required" }, 400);
+    if (typeof customer_email !== "string" || customer_email.trim().length > 254 || !/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(customer_email.trim())) return response({ error: "A valid customer email is required" }, 400);
     if (!["razorpay", "cod"].includes(method)) return response({ error: "Unsupported payment method" }, 400);
     if (typeof amount !== "number" || !Number.isFinite(amount) || amount < 1 || amount > 100000) {
       return response({ error: "Valid payment amount is required" }, 400);
@@ -81,6 +82,7 @@ serve(async (req) => {
       return response({ error: "Unable to check existing order" }, 500);
     }
     if (existing && existing.order_status !== "cancelled") {
+      if (existing.customer_email && existing.customer_email.toLowerCase() !== customer_email.trim().toLowerCase()) return response({ error: "This print job is linked to a different customer email. Please start a new print job." }, 403);
       if (existing.payment_status === "paid" || existing.cod_collected === true) {
         return response({
           success: true, already_paid: true, print_order_id: existing.id,
@@ -120,30 +122,32 @@ serve(async (req) => {
       return response({ error: "Payment amount does not match the recorded print settings. Return to the settings screen and try again." }, 400);
     }
 
+    // Keep a job pending until email OTP verification. Give the checkout/OTP flow 24 hours to finish.
+    const checkoutExpiry = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+    const { data: eligibleJob, error: expiryError } = await supabase.from("print_jobs")
+      .update({ expiry_time: checkoutExpiry, locked: false })
+      .eq("id", job_id).eq("status", "pending").eq("locked", false).select("id").maybeSingle();
+    if (expiryError || !eligibleJob) {
+      return response({ error: "Print job is no longer available for checkout" }, 409);
+    }
+
     if (method === "cod") {
       const { data: order, error: orderError } = await supabase.from("print_orders").insert({
         customer_name: customer_name.trim(),
         customer_mobile: customer_mobile.trim(),
+        customer_email: customer_email.trim().toLowerCase(),
         print_job_id: job_id,
         amount: expectedAmount,
         payment_method: "cod",
         payment_status: "pending",
-        order_status: "accepted",
+        order_status: "pending",
         cod_collected: false,
       }).select("id, order_number, amount, payment_method, payment_status, order_status, cod_collected").single();
       if (orderError || !order) {
         console.error("COD order insert failed:", orderError?.message ?? "no row returned");
         return response({ error: "Could not create Cash on Delivery order" }, 500);
       }
-      const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
-      const { data: queued, error: queueError } = await supabase.from("print_jobs")
-        .update({ status: "ready", expiry_time: expiresAt, locked: false })
-        .eq("id", job_id).eq("status", "pending").select("id").maybeSingle();
-      if (queueError || !queued) {
-        await supabase.from("print_orders").update({ order_status: "cancelled" }).eq("id", order.id);
-        console.error("COD job queue failed:", queueError?.message ?? "job state changed");
-        return response({ error: "The print job could not be queued. Please contact support." }, 409);
-      }
+      // Deliberately do not queue yet: secure-otp releases this job only after verification.
       await supabase.from("logs").insert({
         type: "info", message: "Cash on Delivery order created",
         job_id, metadata: { order_number: order.order_number, amount: expectedAmount },
@@ -180,6 +184,7 @@ serve(async (req) => {
     const { data: printOrder, error: printOrderError } = await supabase.from("print_orders").insert({
       customer_name: customer_name.trim(),
       customer_mobile: customer_mobile.trim(),
+      customer_email: customer_email.trim().toLowerCase(),
       print_job_id: job_id,
       amount: expectedAmount,
       payment_method: "razorpay",
