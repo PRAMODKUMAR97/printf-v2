@@ -10,7 +10,7 @@ CREATE TABLE IF NOT EXISTS public.print_orders (
   print_job_id uuid REFERENCES public.print_jobs(id) ON DELETE SET NULL,
   amount numeric(10,2) NOT NULL CHECK (amount >= 0),
   payment_method text NOT NULL CHECK (payment_method IN ('razorpay','cod')),
-  payment_status text NOT NULL DEFAULT 'pending' CHECK (payment_status IN ('pending','paid','failed','refunded')),
+  payment_status text NOT NULL DEFAULT 'pending' CHECK (payment_status IN ('pending','paid','failed','refunded','not_required')),
   order_status text NOT NULL DEFAULT 'pending' CHECK (order_status IN ('pending','accepted','printing','completed','cancelled','failed')),
   cod_collected boolean NOT NULL DEFAULT false,
   cod_collected_at timestamptz,
@@ -41,7 +41,7 @@ ALTER TABLE public.print_orders ADD CONSTRAINT print_orders_payment_method_check
   CHECK (payment_method IN ('razorpay','cod'));
 ALTER TABLE public.print_orders DROP CONSTRAINT IF EXISTS print_orders_payment_status_check;
 ALTER TABLE public.print_orders ADD CONSTRAINT print_orders_payment_status_check
-  CHECK (payment_status IN ('pending','paid','failed','refunded'));
+  CHECK (payment_status IN ('pending','paid','failed','refunded','not_required'));
 ALTER TABLE public.print_orders DROP CONSTRAINT IF EXISTS print_orders_order_status_check;
 ALTER TABLE public.print_orders ADD CONSTRAINT print_orders_order_status_check
   CHECK (order_status IN ('pending','accepted','printing','completed','cancelled','failed'));
