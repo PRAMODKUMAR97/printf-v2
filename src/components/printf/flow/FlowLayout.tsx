@@ -9,7 +9,7 @@ import { toast } from 'sonner';
 import { usePrinterAvailability } from '@/hooks/usePrinterAvailability';
 
 export const stepToPath: Record<UploadStep, string> = {
-  printf: '/printers', upload: '/upload', processing: '/processing', settings: '/settings', payment: '/payment', status: '/status',
+  printf: '/printers', upload: '/upload', processing: '/processing', settings: '/settings', payment: '/payment', otp: '/verify-otp', status: '/status',
 };
 const FlowShell = () => {
   const navigate = useNavigate();
