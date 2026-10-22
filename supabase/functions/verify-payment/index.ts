@@ -100,16 +100,19 @@ serve(async (req) => {
     let jobStatus = job.status;
     let finalExpiry = job.expiry_time;
     if (job.status === "pending") {
+      // Payment alone does not release a document to the printer. Keep the
+      // job pending until secure-otp verifies the email code.
       const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
-      const { data: released, error: releaseError } = await supabase.from("print_jobs")
-        .update({ status: "ready", expiry_time: expiresAt, locked: false })
-        .eq("id", job_id).eq("status", "pending").select("id, status, expiry_time").maybeSingle();
-      if (releaseError || !released) {
-        console.error("Could not release paid job:", releaseError?.message ?? "job state changed");
+      const { data: reserved, error: reserveError } = await supabase.from("print_jobs")
+        .update({ expiry_time: expiresAt, locked: false })
+        .eq("id", job_id).eq("status", "pending")
+        .select("id, status, expiry_time").maybeSingle();
+      if (reserveError || !reserved) {
+        console.error("Payment verified but job reservation failed:", reserveError?.message ?? "job state changed");
         return response({ error: "Payment verified, but the job needs administrator review" }, 409);
       }
-      jobStatus = released.status;
-      finalExpiry = released.expiry_time;
+      jobStatus = reserved.status;
+      finalExpiry = reserved.expiry_time;
     } else if (!["ready", "printing", "completed"].includes(job.status)) {
       await supabase.from("logs").insert({
         type: "warning", message: "Payment captured but print job requires manual review",
@@ -119,10 +122,17 @@ serve(async (req) => {
     }
 
     await supabase.from("logs").insert({
-      type: "success", message: "Payment verified with Razorpay", job_id,
+        type: "warning", message: "Payment captured but print job requires manual review",
+        job_id, metadata: { razorpay_payment_id, razorpay_order_id, job_status: job.status },
+      });
+      return response({ error: "Payment was captured, but the job is no longer printable. Contact support." }, 409);
+    }
+
+    await supabase.from("logs").insert({
+      type: "success", message: "Payment verified with Razorpay; awaiting email OTP release", job_id,
       metadata: { razorpay_payment_id, razorpay_order_id, job_status: jobStatus, expiry_time: finalExpiry },
     });
-    return response({ success: true, message: "Payment verified successfully", job_status: jobStatus, expiry_time: finalExpiry });
+    return response({ success: true, message: "Payment verified successfully. Check your email for the print OTP.", job_status: jobStatus, expiry_time: finalExpiry, otp_required: true });
   } catch (error) {
     console.error("verify-payment failed:", error instanceof Error ? error.message : "unknown");
     return response({ error: "Invalid request or internal server error" }, 500);
