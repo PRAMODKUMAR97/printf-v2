@@ -96,7 +96,7 @@ serve(async (req) => {
       payment_status: "paid",
       razorpay_order_id,
       razorpay_payment_id,
-    }).eq("print_job_id", job_id).eq("payment_method", "razorpay");
+    }).eq("razorpay_order_id", razorpay_order_id).eq("payment_method", "razorpay");
     if (markOrderError) {
       console.error("Could not update PrintF order:", markOrderError.message);
       return response({ error: "Payment verified, but order status needs administrator review" }, 500);
