@@ -1,93 +1,50 @@
-import { Receipt, Tag, Percent, Calculator } from 'lucide-react';
-import { Separator } from '@/components/ui/separator';
-
 interface PaymentPriceBreakdownProps {
   pageCount: number;
   isColor: boolean;
   copies: number;
   totalAmount: number;
+  layout?: number;
+  sheets?: number;
 }
-
-// Price constants
 const PRICE_PER_PAGE_BW = 2;
 const PRICE_PER_PAGE_COLOR = 10;
-const PLATFORM_FEE_PERCENT = 0; // No platform fee for now
-const GST_PERCENT = 0; // Included in price
+const PLATFORM_FEE_PERCENT = 0;
+const GST_PERCENT = 0;
 
-export function PaymentPriceBreakdown({ pageCount, isColor, copies, totalAmount }: PaymentPriceBreakdownProps) {
+export function PaymentPriceBreakdown({ pageCount, isColor, copies, totalAmount, layout = 1, sheets }: PaymentPriceBreakdownProps) {
   const pricePerPage = isColor ? PRICE_PER_PAGE_COLOR : PRICE_PER_PAGE_BW;
-  const baseCost = pageCount * pricePerPage * copies;
+  const sheetsPerCopy = sheets ?? Math.ceil(pageCount / Math.max(1, layout));
+  const baseCost = sheetsPerCopy * pricePerPage * copies;
   const platformFee = Math.round(baseCost * PLATFORM_FEE_PERCENT) / 100;
   const gst = Math.round(baseCost * GST_PERCENT) / 100;
-  const calculatedTotal = baseCost + platformFee + gst;
-
-  const formatAmount = (amt: number) => {
-    return new Intl.NumberFormat('en-IN', {
-      style: 'currency',
-      currency: 'INR',
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 2,
-    }).format(amt);
-  };
+  const formatAmount = (amt: number) => new Intl.NumberFormat('en-IN', {
+    style: 'currency', currency: 'INR', minimumFractionDigits: 0, maximumFractionDigits: 2,
+  }).format(amt);
 
   return (
-    <div className="bg-card border border-border rounded-xl p-4 space-y-4">
-      <div className="flex items-center gap-2">
-        <Receipt className="w-4 h-4 text-primary" />
-        <h3 className="font-semibold text-sm text-foreground">Price Breakdown</h3>
-      </div>
-
-      <div className="space-y-3">
-        {/* Base Cost */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Calculator className="w-4 h-4 text-muted-foreground" />
-            <div>
-              <p className="text-sm text-foreground">Print Cost</p>
-              <p className="text-xs text-muted-foreground">
-                {pageCount} page{pageCount > 1 ? 's' : ''} × {formatAmount(pricePerPage)} ({isColor ? 'Color' : 'B&W'})
-                {copies > 1 && ` × ${copies} copies`}
-              </p>
-            </div>
+    <section className="panel overflow-hidden">
+      <header className="border-b border-border px-6 py-4">
+        <h3 className="text-[0.6875rem] uppercase tracking-[0.14em] text-muted-foreground">Price breakdown</h3>
+      </header>
+      <div className="divide-y divide-border">
+        <div className="flex items-start justify-between gap-6 px-6 py-4">
+          <div>
+            <p className="text-sm text-foreground">Print cost</p>
+            <p className="mt-0.5 text-xs text-muted-foreground tabular-nums">
+              {sheetsPerCopy} sheet{sheetsPerCopy > 1 ? 's' : ''} × {formatAmount(pricePerPage)} ({isColor ? 'colour' : 'B&W'})
+              {copies > 1 && ' × ' + copies + ' copies'}
+            </p>
+            {layout > 1 && <p className="mt-0.5 text-xs text-muted-foreground tabular-nums">{pageCount} page{pageCount > 1 ? 's' : ''} at {layout}-in-1</p>}
           </div>
-          <span className="text-sm font-medium text-foreground">{formatAmount(baseCost)}</span>
+          <span className="text-sm font-medium text-foreground tabular-nums">{formatAmount(baseCost)}</span>
         </div>
-
-        {/* Platform Fee (if any) */}
-        {platformFee > 0 && (
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Tag className="w-4 h-4 text-muted-foreground" />
-              <p className="text-sm text-foreground">Platform Fee</p>
-            </div>
-            <span className="text-sm text-foreground">{formatAmount(platformFee)}</span>
-          </div>
-        )}
-
-        {/* GST (if any) */}
-        {gst > 0 && (
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Percent className="w-4 h-4 text-muted-foreground" />
-              <p className="text-sm text-foreground">GST (18%)</p>
-            </div>
-            <span className="text-sm text-foreground">{formatAmount(gst)}</span>
-          </div>
-        )}
-
-        <Separator />
-
-        {/* Total */}
-        <div className="flex items-center justify-between">
-          <p className="text-base font-semibold text-foreground">Total Payable</p>
-          <span className="text-xl font-bold text-primary">{formatAmount(totalAmount)}</span>
+        {platformFee > 0 && <div className="flex items-center justify-between gap-6 px-6 py-4"><p className="text-sm text-foreground">Platform fee</p><span className="text-sm text-foreground tabular-nums">{formatAmount(platformFee)}</span></div>}
+        {gst > 0 && <div className="flex items-center justify-between gap-6 px-6 py-4"><p className="text-sm text-foreground">GST (18%)</p><span className="text-sm text-foreground tabular-nums">{formatAmount(gst)}</span></div>}
+        <div className="flex items-end justify-between gap-6 px-6 py-5">
+          <div><p className="text-[0.6875rem] uppercase tracking-[0.14em] text-muted-foreground">Total payable</p><p className="mt-1 text-xs text-muted-foreground">Inclusive of all taxes</p></div>
+          <span className="stat-number text-4xl leading-none text-foreground">{formatAmount(totalAmount)}</span>
         </div>
-
-        {/* Tax inclusive note */}
-        <p className="text-xs text-muted-foreground text-center">
-          All prices are inclusive of applicable taxes
-        </p>
       </div>
-    </div>
+    </section>
   );
 }
