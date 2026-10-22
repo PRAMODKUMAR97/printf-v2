@@ -1,0 +1,207 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Space+Grotesk:wght@400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* PrintF Design System - Navy & Teal */
+    --background: 210 40% 98%;
+    --foreground: 215 35% 15%;
+    
+    --card: 0 0% 100%;
+    --card-foreground: 215 35% 15%;
+    
+    --popover: 0 0% 100%;
+    --popover-foreground: 215 35% 15%;
+    
+    --primary: 207 55% 24%;
+    --primary-foreground: 0 0% 100%;
+    
+    --secondary: 174 62% 40%;
+    --secondary-foreground: 0 0% 100%;
+    
+    --muted: 210 30% 95%;
+    --muted-foreground: 215 20% 45%;
+    
+    --accent: 174 62% 40%;
+    --accent-foreground: 0 0% 100%;
+    
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+    
+    --success: 142 72% 40%;
+    --success-foreground: 0 0% 100%;
+    
+    --warning: 38 92% 50%;
+    --warning-foreground: 0 0% 100%;
+    
+    --border: 210 25% 88%;
+    --input: 210 25% 88%;
+    --ring: 207 55% 24%;
+    
+    --radius: 0.75rem;
+    
+    /* Sidebar tokens */
+    --sidebar-background: 0 0% 98%;
+    --sidebar-foreground: 240 5.3% 26.1%;
+    --sidebar-primary: 207 55% 24%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 174 62% 95%;
+    --sidebar-accent-foreground: 207 55% 24%;
+    --sidebar-border: 210 25% 88%;
+    --sidebar-ring: 207 55% 24%;
+    
+    /* Custom PrintF tokens */
+    --printf-navy: 207 55% 24%;
+    --printf-teal: 174 62% 40%;
+    --printf-light-teal: 174 62% 95%;
+  }
+
+  .dark {
+    --background: 215 35% 10%;
+    --foreground: 210 40% 98%;
+    
+    --card: 215 35% 12%;
+    --card-foreground: 210 40% 98%;
+    
+    --popover: 215 35% 12%;
+    --popover-foreground: 210 40% 98%;
+    
+    --primary: 174 62% 45%;
+    --primary-foreground: 215 35% 10%;
+    
+    --secondary: 207 55% 35%;
+    --secondary-foreground: 0 0% 100%;
+    
+    --muted: 215 30% 18%;
+    --muted-foreground: 210 20% 60%;
+    
+    --accent: 174 62% 40%;
+    --accent-foreground: 0 0% 100%;
+    
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+    
+    --success: 142 72% 45%;
+    --success-foreground: 0 0% 100%;
+    
+    --warning: 38 92% 55%;
+    --warning-foreground: 0 0% 100%;
+    
+    --border: 215 25% 22%;
+    --input: 215 25% 22%;
+    --ring: 174 62% 45%;
+    
+    /* Sidebar tokens */
+    --sidebar-background: 215 35% 10%;
+    --sidebar-foreground: 210 40% 98%;
+    --sidebar-primary: 174 62% 45%;
+    --sidebar-primary-foreground: 215 35% 10%;
+    --sidebar-accent: 215 30% 18%;
+    --sidebar-accent-foreground: 210 40% 98%;
+    --sidebar-border: 215 25% 22%;
+    --sidebar-ring: 174 62% 45%;
+    
+    --printf-navy: 207 55% 35%;
+    --printf-teal: 174 62% 50%;
+    --printf-light-teal: 174 62% 15%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    font-family: 'Inter', system-ui, sans-serif;
+  }
+  
+  h1, h2, h3, h4, h5, h6 {
+    font-family: 'Space Grotesk', system-ui, sans-serif;
+  }
+}
+
+@layer utilities {
+  .printf-gradient {
+    @apply bg-gradient-to-r from-primary to-secondary;
+  }
+  
+  .printf-gradient-text {
+    @apply bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent;
+  }
+  
+  .glass-effect {
+    @apply bg-white/80 backdrop-blur-lg border border-white/20;
+  }
+  
+  .dark .glass-effect {
+    @apply bg-card/80 backdrop-blur-lg border border-white/10;
+  }
+  
+  .animate-float {
+    animation: float 3s ease-in-out infinite;
+  }
+  
+  .animate-pulse-slow {
+    animation: pulse 3s ease-in-out infinite;
+  }
+  
+  .animate-gradient {
+    background-size: 200% 200%;
+    animation: gradient 4s ease infinite;
+  }
+}
+
+@keyframes float {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-10px);
+  }
+}
+
+@keyframes gradient {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  @apply bg-muted rounded-full;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply bg-muted-foreground/30 rounded-full hover:bg-muted-foreground/50;
+}
+
+/* File upload drop zone animation */
+.drop-zone-active {
+  @apply border-secondary bg-secondary/10;
+  animation: dropzone-pulse 1s ease-in-out infinite;
+}
+
+@keyframes dropzone-pulse {
+  0%, 100% {
+    @apply border-secondary/50;
+  }
+  50% {
+    @apply border-secondary;
+  }
+}
