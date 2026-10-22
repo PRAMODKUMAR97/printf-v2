@@ -90,6 +90,7 @@ export function usePayment() {
           amount,
           customer_name: customerName.trim(),
           customer_mobile: customerMobile.trim(),
+          customer_email: email.trim().toLowerCase(),
           payment_method: paymentMethod,
           callback_url: window.location.origin + '/payment-callback',
         },
