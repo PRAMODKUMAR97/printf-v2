@@ -60,7 +60,7 @@ serve(async (req) => {
     const method = payment_method ?? "razorpay";
     if (typeof job_id !== "string" || !UUID_RE.test(job_id)) return response({ error: "Valid job_id is required" }, 400);
     if (!validCustomer(customer_name, customer_mobile)) return response({ error: "A valid customer name and mobile number are required" }, 400);
-    if (typeof customer_email !== "string" || customer_email.trim().length > 254 || !/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(customer_email.trim())) return response({ error: "A valid customer email is required" }, 400);
+    if (typeof customer_email !== "string" || customer_email.trim().length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(customer_email.trim())) return response({ error: "A valid customer email is required" }, 400);
     if (!["razorpay", "cod"].includes(method)) return response({ error: "Unsupported payment method" }, 400);
     if (typeof amount !== "number" || !Number.isFinite(amount) || amount < 1 || amount > 100000) {
       return response({ error: "Valid payment amount is required" }, 400);
@@ -82,8 +82,8 @@ serve(async (req) => {
       return response({ error: "Unable to check existing order" }, 500);
     }
     if (existing && existing.order_status !== "cancelled") {
-      if (existing.customer_email && existing.customer_email.toLowerCase() !== customer_email.trim().toLowerCase()) return response({ error: "This print job is linked to a different customer email. Please start a new print job." }, 403);
-      if (existing.payment_status === "paid" || existing.cod_collected === true) {
+      if (!existing.customer_email || existing.customer_email.toLowerCase() !== customer_email.trim().toLowerCase()) return response({ error: "This print job is linked to a different customer email. Please start a new print job." }, 403);
+      if ((existing.payment_status === "paid" || existing.cod_collected === true) && existing.payment_method === method) {
         return response({
           success: true, already_paid: true, print_order_id: existing.id,
           order_number: existing.order_number, payment_method: existing.payment_method,
