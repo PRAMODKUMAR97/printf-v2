@@ -1,28 +1,11 @@
-import { Mail, FileText, RefreshCcw, Headphones } from 'lucide-react';
-
+const items = ['Instant on-screen receipt', 'Invoice on request', 'Refunded if the print fails', 'Support around the clock'];
 export function PaymentConfidenceSection() {
   return (
-    <div className="bg-muted/30 rounded-xl p-4 space-y-3">
-      <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">What you get</h4>
-      
-      <div className="grid grid-cols-2 gap-3">
-        <div className="flex items-start gap-2">
-          <Mail className="w-4 h-4 text-success mt-0.5" />
-          <p className="text-xs text-muted-foreground">Receipt sent to email</p>
-        </div>
-        <div className="flex items-start gap-2">
-          <FileText className="w-4 h-4 text-success mt-0.5" />
-          <p className="text-xs text-muted-foreground">Invoice available</p>
-        </div>
-        <div className="flex items-start gap-2">
-          <RefreshCcw className="w-4 h-4 text-success mt-0.5" />
-          <p className="text-xs text-muted-foreground">Refund if print fails</p>
-        </div>
-        <div className="flex items-start gap-2">
-          <Headphones className="w-4 h-4 text-success mt-0.5" />
-          <p className="text-xs text-muted-foreground">24/7 Support</p>
-        </div>
-      </div>
-    </div>
+    <section className="panel-sunken px-6 py-5">
+      <h4 className="text-[0.6875rem] uppercase tracking-[0.14em] text-muted-foreground">What's included</h4>
+      <ul className="mt-4 grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+        {items.map((item) => <li key={item} className="flex items-start gap-2.5 text-xs text-muted-foreground"><span className="mt-1.5 h-1 w-1 flex-shrink-0 rounded-full bg-accent" />{item}</li>)}
+      </ul>
+    </section>
   );
 }
