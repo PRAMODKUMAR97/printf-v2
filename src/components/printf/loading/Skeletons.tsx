@@ -18,3 +18,48 @@ export function PaymentSummarySkeleton() {
 export function StatusSkeleton() {
   return <div className="mx-auto w-full max-w-xl"><div className="panel-raised space-y-5 p-7"><ProgressHairline /><Shimmer className="h-3 w-1/4 skeleton-text" /><Shimmer className="h-7 w-2/3 skeleton-text" /><Shimmer className="h-3 w-full skeleton-text" /><Shimmer className="h-3 w-4/5 skeleton-text" /><div className="border-t border-border pt-5 space-y-3"><Shimmer className="h-3 w-full skeleton-text" /><Shimmer className="h-3 w-4/5 skeleton-text" /><Shimmer className="h-3 w-2/3 skeleton-text" /></div></div></div>;
 }
+export function RouteSkeleton() {
+  return (
+    <div
+      style={{
+        minHeight: "100vh",
+        padding: "24px",
+        background: "#f8fafc",
+      }}
+    >
+      <div
+        style={{
+          maxWidth: "1100px",
+          margin: "0 auto",
+        }}
+      >
+        <div
+          style={{
+            height: "32px",
+            width: "180px",
+            background: "#e2e8f0",
+            borderRadius: "8px",
+            marginBottom: "24px",
+          }}
+        />
+
+        <div
+          style={{
+            height: "220px",
+            background: "#e2e8f0",
+            borderRadius: "12px",
+            marginBottom: "16px",
+          }}
+        />
+
+        <div
+          style={{
+            height: "90px",
+            background: "#e2e8f0",
+            borderRadius: "12px",
+          }}
+        />
+      </div>
+    </div>
+  );
+}
