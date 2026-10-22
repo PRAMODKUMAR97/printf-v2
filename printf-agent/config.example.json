@@ -1,0 +1,10 @@
+{
+  "printf_id": "SET_YOUR_PRINTER_STATION_UUID",
+  "api_key": "SET_YOUR_STATION_API_KEY",
+  "supabase_url": "https://unqongjwukgjbasvpyup.supabase.co",
+  "supabase_anon_key": "sb_publishable_wCXlekTlM2fs4ncoVNlk8Q_t3lK1Mhf",
+  "printer_name": "PrintF Station",
+  "poll_interval": 5,
+  "download_path": "./downloads",
+  "log_level": "INFO"
+}
