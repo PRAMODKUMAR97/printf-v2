@@ -423,6 +423,7 @@ export function OTPVerification({ otp, job: initialJob, email, paymentMethod = '
           <p className="text-sm text-muted-foreground">
             Enter the 6-digit OTP sent to your email to verify your print order
           </p>
+          {orderNumber && <p className="text-xs font-semibold text-primary mt-1">Order #{orderNumber}</p>}
         </div>
       </div>
 
