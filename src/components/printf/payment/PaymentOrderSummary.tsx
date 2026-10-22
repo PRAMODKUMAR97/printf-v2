@@ -1,6 +1,4 @@
-import { FileText, Printer, MapPin, Clock, Palette, Copy } from 'lucide-react';
 import { PrintJob } from '@/types/printf';
-import { Separator } from '@/components/ui/separator';
 
 interface PaymentOrderSummaryProps {
   job: PrintJob;
@@ -11,94 +9,36 @@ interface PaymentOrderSummaryProps {
 export function PaymentOrderSummary({ job, printerName, printerLocation }: PaymentOrderSummaryProps) {
   const settings = job.settings_json;
   const pageCount = settings.page_count || 1;
-
+  const layout = settings.layout || 1;
+  const selected = settings.selected_pages || pageCount;
+  const sheetsPerCopy = settings.sheets || Math.ceil(selected / Math.max(1, layout));
+  const totalSheets = sheetsPerCopy * (settings.copies || 1);
+  const rows: Array<{ label: string; value: string; sub?: string }> = [
+    { label: 'Document', value: job.file_name, sub: pageCount + ' page' + (pageCount > 1 ? 's' : '') + ' · ' + (job.file_size / 1024).toFixed(1) + ' KB' },
+    { label: 'Output', value: settings.color ? 'Colour' : 'Black & white' },
+    { label: 'Layout', value: layout === 1 ? 'One per sheet' : String(layout) + '-in-1', sub: settings.duplex ? 'Double-sided' : 'Single-sided' },
+    { label: 'Copies', value: String(settings.copies || 1) },
+    { label: 'Sheets', value: totalSheets + ' sheet' + (totalSheets > 1 ? 's' : ''), sub: selected + ' page' + (selected > 1 ? 's' : '') + ' selected' },
+    { label: 'Station', value: printerName || 'PrintF station', sub: printerLocation },
+    { label: 'Estimated time', value: '~' + Math.ceil(totalSheets * 0.5) + ' min' },
+    { label: 'Job reference', value: job.id.slice(0, 8).toUpperCase() },
+  ];
   return (
-    <div className="bg-card border border-border rounded-xl p-4 space-y-4">
-      <div className="flex items-center gap-2">
-        <FileText className="w-4 h-4 text-primary" />
-        <h3 className="font-semibold text-sm text-foreground">Order Summary</h3>
-      </div>
-
-      <div className="space-y-3">
-        {/* File Details */}
-        <div className="flex items-start gap-3 p-3 bg-muted/50 rounded-lg">
-          <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0">
-            <FileText className="w-5 h-5 text-primary" />
+    <section className="panel overflow-hidden">
+      <header className="border-b border-border px-6 py-4">
+        <h3 className="text-[0.6875rem] uppercase tracking-[0.14em] text-muted-foreground">Order summary</h3>
+      </header>
+      <dl className="divide-y divide-border">
+        {rows.map((row) => (
+          <div key={row.label} className="flex items-start justify-between gap-6 px-6 py-3.5">
+            <dt className="flex-shrink-0 text-sm text-muted-foreground">{row.label}</dt>
+            <dd className="min-w-0 text-right">
+              <p className="truncate text-sm font-medium text-foreground">{row.value}</p>
+              {row.sub && <p className="mt-0.5 truncate text-xs text-muted-foreground">{row.sub}</p>}
+            </dd>
           </div>
-          <div className="flex-1 min-w-0">
-            <p className="font-medium text-sm text-foreground truncate">{job.file_name}</p>
-            <p className="text-xs text-muted-foreground">
-              {pageCount} {pageCount > 1 ? 'pages' : 'page'} • {(job.file_size / 1024).toFixed(1)} KB
-            </p>
-          </div>
-        </div>
-
-        <Separator />
-
-        {/* Print Settings */}
-        <div className="grid grid-cols-2 gap-3">
-          <div className="flex items-center gap-2">
-            <Palette className="w-4 h-4 text-muted-foreground" />
-            <div>
-              <p className="text-xs text-muted-foreground">Print Type</p>
-              <p className="text-sm font-medium text-foreground">
-                {settings.color ? 'Color' : 'Black & White'}
-              </p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <Copy className="w-4 h-4 text-muted-foreground" />
-            <div>
-              <p className="text-xs text-muted-foreground">Copies</p>
-              <p className="text-sm font-medium text-foreground">{settings.copies || 1}</p>
-            </div>
-          </div>
-        </div>
-
-        <Separator />
-
-        {/* Printer Info */}
-        {(printerName || printerLocation) && (
-          <div className="space-y-2">
-            <div className="flex items-center gap-2">
-              <Printer className="w-4 h-4 text-success" />
-              <div>
-                <p className="text-xs text-muted-foreground">Printer</p>
-                <p className="text-sm font-medium text-foreground">{printerName || 'PrintF Station'}</p>
-              </div>
-            </div>
-            {printerLocation && (
-              <div className="flex items-start gap-2">
-                <MapPin className="w-4 h-4 text-muted-foreground mt-0.5" />
-                <p className="text-xs text-muted-foreground line-clamp-2">{printerLocation}</p>
-              </div>
-            )}
-          </div>
-        )}
-
-        <Separator />
-
-        {/* Estimated Time */}
-        <div className="flex items-center gap-2">
-          <Clock className="w-4 h-4 text-muted-foreground" />
-          <div>
-            <p className="text-xs text-muted-foreground">Estimated Print Time</p>
-            <p className="text-sm font-medium text-foreground">~{Math.ceil(pageCount * 0.5)} minutes</p>
-          </div>
-        </div>
-
-        {/* Order IDs */}
-        <div className="bg-muted/30 rounded-lg p-3 space-y-1">
-          <div className="flex justify-between items-center">
-            <span className="text-xs text-muted-foreground">Job ID</span>
-            <span className="text-xs font-mono text-foreground">{job.id.slice(0, 8)}...</span>
-          </div>
-          <div className="flex justify-between items-center">
-            <span className="text-xs text-muted-foreground">Service</span>
-            <span className="text-xs text-foreground">Cloud Print Service – PrintF</span>
-          </div>
-        </div>
-      </div>
-    </div>
+        ))}
+      </dl>
+    </section>
   );
 }
