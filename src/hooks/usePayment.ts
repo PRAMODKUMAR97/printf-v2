@@ -5,7 +5,6 @@ import { toast } from 'sonner';
 declare global {
   interface Window { Razorpay: any; }
 }
-
 type CheckoutPaymentMethod = 'razorpay' | 'cod';
 
 interface PaymentOptions {
@@ -21,7 +20,6 @@ interface PaymentOptions {
 
 export function usePayment() {
   const [isProcessing, setIsProcessing] = useState(false);
-
   const loadRazorpayScript = useCallback((): Promise<boolean> => new Promise((resolve) => {
     if (window.Razorpay) { resolve(true); return; }
     const script = document.createElement('script');
@@ -37,8 +35,8 @@ export function usePayment() {
     setIsProcessing(true);
     try {
       if (paymentMethod === 'razorpay') {
-        const scriptLoaded = await loadRazorpayScript();
-        if (!scriptLoaded) {
+        const loaded = await loadRazorpayScript();
+        if (!loaded) {
           toast.error('Failed to load payment gateway');
           setIsProcessing(false);
           onFailure();
@@ -56,11 +54,11 @@ export function usePayment() {
           customer_name: customerName.trim(),
           customer_mobile: customerMobile.trim(),
           payment_method: paymentMethod,
-          callback_url: \`\${window.location.origin}/payment-callback\`,
+          callback_url: window.location.origin + '/payment-callback',
         },
       });
 
-      if (error || !data?.success) {
+      if (error || !data || data.success !== true) {
         console.error('Order creation error:', error ?? data);
         toast.error(data?.error || 'Failed to create your order. Please try again.');
         setIsProcessing(false);
@@ -72,15 +70,14 @@ export function usePayment() {
       if (data.order_number !== undefined) localStorage.setItem('printf_order_number', String(data.order_number));
 
       if (data.already_paid) {
-        toast.success(\`Order #\${data.order_number ?? ''} is already recorded as paid.\`);
+        toast.success('Order #' + (data.order_number ?? '') + ' is already recorded as paid.');
         setIsProcessing(false);
         onSuccess();
         return;
       }
 
-      // COD is created server-side and the print job is queued without opening Razorpay.
       if (paymentMethod === 'cod') {
-        toast.success(\`Order #\${data.order_number ?? ''} placed. Pay cash when collecting your print.\`);
+        toast.success('Order #' + (data.order_number ?? '') + ' placed. Pay cash when collecting your print.');
         setIsProcessing(false);
         onSuccess();
         return;
