@@ -1,4 +1,13 @@
-project_id = "kwtrrithxztpoxuzhvtu"
+project_id = "unqongjwukgjbasvpyup"
+
+[functions.printer-agent]
+verify_jwt = false
+
+[functions.job-status]
+verify_jwt = false
+
+[functions.create-job]
+verify_jwt = false
 
 [functions.create-order]
 verify_jwt = false
@@ -6,5 +15,26 @@ verify_jwt = false
 [functions.verify-payment]
 verify_jwt = false
 
-[functions.send-email-otp]
+[functions.public-printfs]
+verify_jwt = false
+
+[functions.printer-auth]
+verify_jwt = false
+
+[functions.secure-upload]
+verify_jwt = false
+
+[functions.secure-job]
+verify_jwt = false
+
+[functions.secure-otp]
+verify_jwt = false
+
+[functions.secure-payment]
+verify_jwt = false
+
+[functions.cashfree-create-order]
+verify_jwt = false
+
+[functions.cashfree-webhook]
 verify_jwt = false
