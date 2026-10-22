@@ -1,0 +1,1 @@
+UPDATE printfs SET name = 'Canara Engineering College' WHERE id = 'bb284eca-0574-4e8f-b5cc-bf848e7d468d'
