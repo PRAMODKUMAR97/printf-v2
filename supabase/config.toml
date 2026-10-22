@@ -1,0 +1,10 @@
+project_id = "kwtrrithxztpoxuzhvtu"
+
+[functions.create-order]
+verify_jwt = false
+
+[functions.verify-payment]
+verify_jwt = false
+
+[functions.send-email-otp]
+verify_jwt = false
