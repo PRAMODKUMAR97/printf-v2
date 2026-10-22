@@ -44,6 +44,26 @@ serve(async (req) => {
       const fromEmail = Deno.env.get("RESEND_FROM_EMAIL") ?? "PrintF <noreply@printfapp.site>";
       if (!resendKey) return json({ error: "Email OTP service is not configured" }, 503);
 
+      const { data: order, error: orderLookupError } = await supabase.from("print_orders")
+        .select("id, payment_method, payment_status, order_status, customer_email")
+        .eq("print_job_id", jobId).order("created_at", { ascending: false }).limit(1).maybeSingle();
+      if (orderLookupError) {
+        console.error("OTP order lookup failed:", orderLookupError.message);
+        return json({ error: "Could not validate the print order" }, 500);
+      }
+      if (!order || order.order_status === "cancelled" || order.order_status === "failed") {
+        return json({ error: "A valid print order is required before requesting an OTP" }, 404);
+      }
+      if (!order.customer_email || order.customer_email.trim().toLowerCase() !== email) {
+        return json({ error: "This email does not match the print order" }, 403);
+      }
+      if (order.payment_method === "razorpay" && order.payment_status !== "paid") {
+        return json({ error: "Verify the online payment before requesting the print OTP" }, 409);
+      }
+      if (order.payment_method === "cod" && !["pending", "paid"].includes(order.payment_status)) {
+        return json({ error: "This Cash on Delivery order cannot be verified" }, 409);
+      }
+
       const { data: job, error: jobError } = await supabase.from("print_jobs")
         .select("id, status, expiry_time").eq("id", jobId).maybeSingle();
       if (jobError || !job) return json({ error: "Print job not found" }, 404);
@@ -124,10 +144,69 @@ serve(async (req) => {
         }).eq("id", record.id);
         return json({ error: "Incorrect verification code" }, 400);
       }
-      const { error: markUsedError } = await supabase.from("otps")
-        .update({ used: true }).eq("id", record.id).eq("used", false);
-      if (markUsedError) return json({ error: "Could not complete verification" }, 500);
-      return json({ success: true, verified: true });
+      const { data: order, error: orderLookupError } = await supabase.from("print_orders")
+        .select("id, payment_method, payment_status, order_status, customer_email")
+        .eq("print_job_id", jobId).order("created_at", { ascending: false }).limit(1).maybeSingle();
+      if (orderLookupError) {
+        console.error("OTP verification order lookup failed:", orderLookupError.message);
+        return json({ error: "Could not validate the print order" }, 500);
+      }
+      if (!order || order.order_status === "cancelled" || order.order_status === "failed") {
+        return json({ error: "A valid print order is required" }, 404);
+      }
+      if (!order.customer_email || order.customer_email.trim().toLowerCase() !== email) {
+        return json({ error: "This email does not match the print order" }, 403);
+      }
+      if (order.payment_method === "razorpay" && order.payment_status !== "paid") {
+        return json({ error: "Online payment has not been verified" }, 409);
+      }
+      if (order.payment_method === "cod" && !["pending", "paid"].includes(order.payment_status)) {
+        return json({ error: "This Cash on Delivery order cannot be released" }, 409);
+      }
+
+      const { data: job, error: jobLookupError } = await supabase.from("print_jobs")
+        .select("id, status, expiry_time").eq("id", jobId).maybeSingle();
+      if (jobLookupError || !job) return json({ error: "Print job not found" }, 404);
+      if (job.status === "expired" || job.status === "failed" || new Date(job.expiry_time).getTime() < Date.now()) {
+        return json({ error: "Print job has expired" }, 410);
+      }
+
+      // Consume the valid OTP, then make the job visible to the always-on print agent.
+      const { data: consumed, error: markUsedError } = await supabase.from("otps")
+        .update({ used: true }).eq("id", record.id).eq("used", false).select("id").maybeSingle();
+      if (markUsedError || !consumed) {
+        return json({ error: "This OTP has already been used. Request a new code if needed." }, 409);
+      }
+
+      let queuedStatus = job.status;
+      if (job.status === "pending") {
+        const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+        const { data: queued, error: queueError } = await supabase.from("print_jobs")
+          .update({ status: "ready", expiry_time: expiresAt, locked: false })
+          .eq("id", jobId).eq("status", "pending").select("id, status, expiry_time").maybeSingle();
+        if (queueError || !queued) {
+          await supabase.from("otps").update({ used: false }).eq("id", record.id);
+          console.error("OTP verified but job could not be queued:", queueError?.message ?? "job state changed");
+          return json({ error: "OTP verified, but the print job could not be queued. Please try again." }, 409);
+        }
+        queuedStatus = queued.status;
+      } else if (!["ready", "printing", "completed"].includes(job.status)) {
+        await supabase.from("otps").update({ used: false }).eq("id", record.id);
+        return json({ error: "Print job cannot be queued in its current state" }, 409);
+      }
+
+      if (job.status === "pending") {
+        await supabase.from("print_orders").update({ order_status: "accepted" })
+          .eq("print_job_id", jobId).eq("order_status", "pending");
+      }
+
+      await supabase.from("logs").insert({
+        type: "success",
+        message: "Email OTP verified; print job released to queue",
+        job_id: jobId,
+        metadata: { order_number: order.order_number ?? null, job_status: queuedStatus },
+      });
+      return json({ success: true, verified: true, job_status: queuedStatus });
     }
 
     return json({ error: "Action must be send or verify" }, 400);
