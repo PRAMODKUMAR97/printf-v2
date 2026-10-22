@@ -16,6 +16,8 @@ interface OTPVerificationProps {
   otp: OTP;
   job: PrintJob;
   email?: string;
+  paymentMethod?: 'razorpay' | 'cod';
+  orderNumber?: number | null;
   onNewPrint: () => void;
   onVerified: () => void;
 }
@@ -66,7 +68,7 @@ const STATUS_CONFIG = {
   },
 };
 
-export function OTPVerification({ otp, job: initialJob, email, onNewPrint, onVerified }: OTPVerificationProps) {
+export function OTPVerification({ otp, job: initialJob, email, paymentMethod = 'razorpay', orderNumber, onNewPrint, onVerified }: OTPVerificationProps) {
   const [enteredOTP, setEnteredOTP] = useState('');
   const [isVerifying, setIsVerifying] = useState(false);
   const [isVerified, setIsVerified] = useState(false);
@@ -132,97 +134,63 @@ export function OTPVerification({ otp, job: initialJob, email, onNewPrint, onVer
   const isExpired = timeLeft === 0;
 
   const verifyOTP = useCallback(async () => {
-    if (enteredOTP.length !== 4 || isVerifying) return;
-
+    if (enteredOTP.length !== 6 || isVerifying) return;
+    if (!email) {
+      setVerificationError('Email address is missing. Start a new print order.');
+      return;
+    }
     setIsVerifying(true);
     setVerificationError('');
-
     try {
-      // Verify OTP via secure edge function (bypasses RLS)
-      const { data, error } = await supabase.functions.invoke('verify-otp', {
-        body: {
-          otp_code: enteredOTP,
-          job_id: job.id,
-        },
+      const { data, error } = await supabase.functions.invoke('secure-otp', {
+        body: { action: 'verify', otp: enteredOTP, job_id: job.id, email },
       });
-
       if (error) throw error;
-
-      if (data?.valid) {
+      if (data?.verified) {
         setIsVerified(true);
-        toast.success('OTP verified! Your job is now in the print queue.');
+        toast.success('OTP verified. Your print order is confirmed.');
         onVerified();
       } else {
-        setAttempts(prev => prev + 1);
+        setAttempts((prev) => prev + 1);
         setVerificationError(data?.error || 'Incorrect OTP. Please try again.');
         setEnteredOTP('');
-
-        if (data?.locked) {
-          toast.error(data.error);
-        } else if (attempts >= 2) {
-          toast.error('Multiple incorrect attempts. You can resend the OTP.');
-        }
+        if (data?.locked) toast.error(data.error);
       }
     } catch (error) {
-      console.error('Verification error:', error);
+      console.error('OTP verification error:', error);
       setVerificationError('Verification failed. Please try again.');
     } finally {
       setIsVerifying(false);
     }
-  }, [enteredOTP, job.id, isVerifying, attempts, onVerified]);
+  }, [enteredOTP, job.id, email, isVerifying, onVerified]);
 
   const resendOTP = useCallback(async () => {
     if (!email || resendCooldown > 0 || isResending) return;
-
     setIsResending(true);
     try {
-      // Generate new OTP
-      const newOtpCode = Math.floor(1000 + Math.random() * 9000).toString();
-
-      // Create new OTP in database
-      const { error: dbError } = await supabase.from('otps').insert({
-        job_id: job.id,
-        otp_code: newOtpCode,
+      const { data, error } = await supabase.functions.invoke('secure-otp', {
+        body: { action: 'send', job_id: job.id, email },
       });
-
-      if (dbError) throw dbError;
-
-      // Send Email with new OTP
-      const { data, error } = await supabase.functions.invoke('send-email-otp', {
-        body: {
-          email: email,
-          otp: newOtpCode,
-          jobId: job.id,
-        },
-      });
-
-      if (error) throw error;
-
-      if (data?.success) {
-        toast.success('New OTP sent to your email!');
-        // Update the local OTP reference
-        otp.otp_code = newOtpCode;
-      } else {
-        toast.info('OTP generated. Check your email.');
-        // Still update local OTP even if email fails
-        otp.otp_code = newOtpCode;
-      }
-
+      if (error || !data?.success) throw error || new Error(data?.error || 'OTP send failed');
+      const seconds = Number(data.expires_in_seconds) || 300;
+      otp.expires_at = new Date(Date.now() + seconds * 1000).toISOString();
+      setTimeLeft(seconds);
+      toast.success('A new OTP was sent to your email.');
       setResendCooldown(RESEND_COOLDOWN);
       setVerificationError('');
       setEnteredOTP('');
       setAttempts(0);
     } catch (error) {
       console.error('Error resending OTP:', error);
-      toast.error('Failed to resend OTP');
+      toast.error('Failed to resend OTP. Please try again.');
     } finally {
       setIsResending(false);
     }
   }, [email, job.id, otp, resendCooldown, isResending]);
 
-  // Auto-verify when 4 digits entered
+  // Auto-verify when all 6 digits have been entered
   useEffect(() => {
-    if (enteredOTP.length === 4 && !isVerifying && !isVerified) {
+    if (enteredOTP.length === 6 && !isVerifying && !isVerified) {
       verifyOTP();
     }
   }, [enteredOTP, verifyOTP, isVerifying, isVerified]);
@@ -345,7 +313,7 @@ export function OTPVerification({ otp, job: initialJob, email, onNewPrint, onVer
               )}>
                 <Check className="w-3 h-3" />
               </div>
-              <span className="text-sm text-muted-foreground">Payment verified</span>
+              <span className="text-sm text-muted-foreground">{paymentMethod === 'cod' ? 'COD order created' : 'Payment verified'}</span>
             </div>
 
             {/* Ready */}
@@ -451,9 +419,9 @@ export function OTPVerification({ otp, job: initialJob, email, onNewPrint, onVer
           <Check className="w-5 h-5 text-primary" />
         </div>
         <div>
-          <p className="font-semibold text-primary">Payment Successful!</p>
+          <p className="font-semibold text-primary">{paymentMethod === 'cod' ? 'Cash on Delivery Order Placed!' : 'Payment Successful!'}</p>
           <p className="text-sm text-muted-foreground">
-            Enter the OTP sent to your email to start printing
+            Enter the 6-digit OTP sent to your email to verify your print order
           </p>
         </div>
       </div>
@@ -461,11 +429,11 @@ export function OTPVerification({ otp, job: initialJob, email, onNewPrint, onVer
       {/* OTP Entry Card */}
       <div className="bg-card border border-border rounded-2xl p-6 shadow-lg">
         <div className="text-center">
-          <p className="text-sm text-muted-foreground mb-4">Enter 4-digit OTP</p>
+          <p className="text-sm text-muted-foreground mb-4">Enter 6-digit OTP</p>
 
           <div className="flex justify-center mb-4">
             <InputOTP
-              maxLength={4}
+              maxLength={6}
               value={enteredOTP}
               onChange={setEnteredOTP}
               disabled={isExpired || isVerifying}
@@ -474,7 +442,9 @@ export function OTPVerification({ otp, job: initialJob, email, onNewPrint, onVer
                 <InputOTPSlot index={0} className="w-14 h-16 text-2xl" />
                 <InputOTPSlot index={1} className="w-14 h-16 text-2xl" />
                 <InputOTPSlot index={2} className="w-14 h-16 text-2xl" />
-                <InputOTPSlot index={3} className="w-14 h-16 text-2xl" />
+                <InputOTPSlot index={3} className="w-12 h-14 sm:w-14 sm:h-16 text-2xl" />
+                <InputOTPSlot index={4} className="w-12 h-14 sm:w-14 sm:h-16 text-2xl" />
+                <InputOTPSlot index={5} className="w-12 h-14 sm:w-14 sm:h-16 text-2xl" />
               </InputOTPGroup>
             </InputOTP>
           </div>
@@ -491,7 +461,7 @@ export function OTPVerification({ otp, job: initialJob, email, onNewPrint, onVer
           <Button
             className="w-full h-12 rounded-xl mb-4"
             onClick={verifyOTP}
-            disabled={enteredOTP.length !== 4 || isVerifying || isExpired}
+            disabled={enteredOTP.length !== 6 || isVerifying || isExpired}
           >
             {isVerifying ? (
               <>
