@@ -53,10 +53,11 @@ serve(async (req) => {
   if (req.method !== "POST") return response({ error: "Method not allowed" }, 405);
   try {
     const body = await req.json();
-    const { job_id, amount, customer_name, customer_mobile, payment_method, callback_url } = body ?? {};
+    const { job_id, amount, customer_name, customer_mobile, customer_email, payment_method, callback_url } = body ?? {};
     const method = payment_method ?? "razorpay";
     if (typeof job_id !== "string" || !UUID_RE.test(job_id)) return response({ error: "Valid job_id is required" }, 400);
     if (!validCustomer(customer_name, customer_mobile)) return response({ error: "A valid customer name and mobile number are required" }, 400);
+    if (typeof customer_email !== "string" || customer_email.trim().length > 254 || !/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(customer_email.trim())) return response({ error: "A valid customer email is required for print OTP verification" }, 400);
     if (!["razorpay", "cod"].includes(method)) return response({ error: "Unsupported payment method" }, 400);
     if (typeof amount !== "number" || !Number.isFinite(amount) || amount < 1 || amount > 100000) {
       return response({ error: "Valid payment amount is required" }, 400);
@@ -77,6 +78,15 @@ serve(async (req) => {
       return response({ error: "Unable to check existing order" }, 500);
     }
     if (existing && existing.order_status !== "cancelled") {
+      const sameCustomer = existing.customer_name === customer_name.trim() &&
+        existing.customer_mobile === customer_mobile.trim() &&
+        (!existing.customer_email || existing.customer_email.trim().toLowerCase() === customer_email.trim().toLowerCase());
+      if (!sameCustomer) return response({ error: "An order already exists for this print job with different customer details. Start a new print job or contact support." }, 409);
+      if (!existing.customer_email) {
+        const { error: emailUpdateError } = await supabase.from("print_orders")
+          .update({ customer_email: customer_email.trim().toLowerCase() }).eq("id", existing.id);
+        if (emailUpdateError) return response({ error: "Could not update the existing order contact" }, 500);
+      }
       if (existing.payment_status === "paid" || existing.cod_collected === true) {
         return response({ success: true, already_paid: true, print_order_id: existing.id,
           order_number: existing.order_number, payment_method: existing.payment_method });
@@ -116,25 +126,28 @@ serve(async (req) => {
       const { data: order, error: orderError } = await supabase.from("print_orders").insert({
         customer_name: customer_name.trim(),
         customer_mobile: customer_mobile.trim(),
+        customer_email: customer_email.trim().toLowerCase(),
         print_job_id: job_id,
         amount: expectedAmount,
         payment_method: "cod",
         payment_status: "pending",
-        order_status: "accepted",
+        order_status: "pending",
         cod_collected: false,
       }).select("id, order_number, amount, payment_method, payment_status, order_status, cod_collected").single();
       if (orderError || !order) {
         console.error("COD order insert failed:", orderError?.message ?? "no row returned");
         return response({ error: "Could not create Cash on Delivery order" }, 500);
       }
+      // Keep the job pending until the emailed OTP is verified. Extend its
+      // reservation window so a temporary email/printer delay does not expire it.
       const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
-      const { data: queued, error: queueError } = await supabase.from("print_jobs")
-        .update({ status: "ready", expiry_time: expiresAt, locked: false })
-        .eq("id", job_id).eq("status", "pending").select("id").maybeSingle();
-      if (queueError || !queued) {
+      const { error: reserveError } = await supabase.from("print_jobs")
+        .update({ expiry_time: expiresAt, locked: false })
+        .eq("id", job_id).eq("status", "pending");
+      if (reserveError) {
         await supabase.from("print_orders").update({ order_status: "cancelled" }).eq("id", order.id);
-        console.error("COD job queue failed:", queueError?.message ?? "job state changed");
-        return response({ error: "The print job could not be queued. Please contact support." }, 409);
+        console.error("COD job reservation failed:", reserveError.message);
+        return response({ error: "The print job could not be reserved. Please contact support." }, 500);
       }
       await supabase.from("logs").insert({ type: "info", message: "Cash on Delivery order created", job_id,
         metadata: { order_number: order.order_number, amount: expectedAmount } });
