@@ -22,3 +22,9 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# PrintF station secrets and local runtime files
+.env
+printf-agent/config.json
+printf-agent/*.log
+printf-agent/__pycache__/
