@@ -105,17 +105,17 @@ serve(async (req) => {
     let jobStatus = job.status;
     let finalExpiry = job.expiry_time;
     if (job.status === "pending") {
-      // The always-on station agent can recover a paid job for up to 24 hours after a brief outage.
+      // Payment success must NOT make the job printable. OTP verification does that.
       const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
-      const { data: released, error: releaseError } = await supabase.from("print_jobs")
-        .update({ status: "ready", expiry_time: expiresAt, locked: false })
+      const { data: extended, error: extendError } = await supabase.from("print_jobs")
+        .update({ expiry_time: expiresAt, locked: false })
         .eq("id", job_id).eq("status", "pending").select("id, status, expiry_time").maybeSingle();
-      if (releaseError || !released) {
-        console.error("Could not release paid job:", releaseError?.message ?? "job changed concurrently");
-        return response({ error: "Payment verified, but the job needs administrator review" }, 409);
+      if (extendError || !extended) {
+        console.error("Could not extend verified job expiry:", extendError?.message ?? "job state changed concurrently");
+        return response({ error: "Payment was verified, but the job needs administrator review" }, 409);
       }
-      jobStatus = released.status;
-      finalExpiry = released.expiry_time;
+      jobStatus = extended.status;
+      finalExpiry = extended.expiry_time;
     } else if (!["ready", "printing", "completed"].includes(job.status)) {
       await supabase.from("logs").insert({
         type: "warning", message: "Payment captured but print job requires manual review",
