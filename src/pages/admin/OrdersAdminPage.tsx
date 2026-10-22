@@ -37,17 +37,71 @@ export default function OrdersAdminPage() {
   useEffect(() => { void loadOrders(); }, [loadOrders]);
 
   const changeStatus = async (order: Order, nextStatus: string) => {
-    if (!STATUSES.includes(nextStatus)) return;
-    const { error } = await (supabase as any).from('print_orders').update({ order_status: nextStatus }).eq('id', order.id);
-    if (error) { toast.error('Could not update order status'); return; }
+    if (!STATUSES.includes(nextStatus) || nextStatus === order.order_status) return;
+
+    const jobStatusForOrder: Record<string, string> = {
+      pending: 'pending',
+      accepted: 'ready',
+      printing: 'printing',
+      completed: 'completed',
+      cancelled: 'expired',
+      failed: 'failed',
+    };
+
+    if (order.print_job_id) {
+      const { data: job, error: lookupError } = await (supabase as any).from('print_jobs')
+        .select('id, status, locked').eq('id', order.print_job_id).maybeSingle();
+      if (lookupError || !job) {
+        toast.error('Could not load the linked print job. No status was changed.');
+        return;
+      }
+
+      if (job.status === 'completed' && nextStatus !== 'completed') {
+        toast.error('A completed print job cannot be moved back to an earlier status.');
+        return;
+      }
+      if (job.status === 'printing' && nextStatus === 'cancelled') {
+        toast.error('This job is already printing. Let it finish or mark it failed if printing actually stopped.');
+        return;
+      }
+      if (['failed', 'expired'].includes(job.status) && !['failed', 'cancelled'].includes(nextStatus)) {
+        toast.error('This print job is no longer active. Start a new print job to retry.');
+        return;
+      }
+
+      const nextJobStatus = jobStatusForOrder[nextStatus];
+      const { error: jobUpdateError } = await (supabase as any).from('print_jobs')
+        .update({ status: nextJobStatus, locked: nextJobStatus === 'printing' ? job.locked : false })
+        .eq('id', job.id);
+      if (jobUpdateError) {
+        console.error('Could not update print job:', jobUpdateError);
+        toast.error('Could not update the linked print job. Check administrator permissions.');
+        return;
+      }
+      // The database trigger syncs print_jobs.status back into the order status.
+      // This fallback handles unchanged job states where the trigger won't fire.
+    }
+
+    const { error } = await (supabase as any).from('print_orders')
+      .update({ order_status: nextStatus }).eq('id', order.id);
+    if (error) {
+      console.error('Could not update order status:', error);
+      toast.error('The print job was updated, but the order record could not be updated. Refresh and inspect the job.');
+      await loadOrders();
+      return;
+    }
     toast.success(`Order #${order.order_number} updated`);
     await loadOrders();
   };
 
   const markCashCollected = async (order: Order) => {
+    if (order.payment_method !== 'cod' || order.order_status !== 'completed') {
+      toast.error('Record COD collection only after the print job is completed.');
+      return;
+    }
     const { error } = await (supabase as any).from('print_orders')
       .update({ cod_collected: true, payment_status: 'paid', cod_collected_at: new Date().toISOString() })
-      .eq('id', order.id).eq('payment_method', 'cod').eq('cod_collected', false);
+      .eq('id', order.id).eq('payment_method', 'cod').eq('order_status', 'completed').eq('cod_collected', false);
     if (error) { toast.error('Could not mark cash as collected'); return; }
     toast.success(`Cash recorded for order #${order.order_number}`);
     await loadOrders();
@@ -116,7 +170,7 @@ export default function OrdersAdminPage() {
                   <td className="p-3 font-semibold">₹{Number(order.amount).toFixed(2)}</td>
                   <td className="p-3"><p className="uppercase text-xs font-semibold">{order.payment_method}</p><p className="text-xs text-muted-foreground">{order.payment_status}</p></td>
                   <td className="p-3"><select aria-label={`Status for order ${order.order_number}`} className="h-9 rounded-md border border-border bg-background px-2" value={order.order_status} onChange={(e) => void changeStatus(order, e.target.value)}>{STATUSES.map(status => <option key={status} value={status}>{status}</option>)}</select></td>
-                  <td className="p-3">{order.payment_method !== 'cod' ? <span className="text-muted-foreground">Not applicable</span> : order.cod_collected ? <span className="text-success font-semibold">Collected</span> : <Button size="sm" onClick={() => void markCashCollected(order)}>Mark collected</Button>}</td>
+                  <td className="p-3">{order.payment_method !== 'cod' ? <span className="text-muted-foreground">Not applicable</span> : order.cod_collected ? <span className="text-success font-semibold">Collected</span> : <Button size="sm" disabled={order.order_status !== 'completed'} title={order.order_status !== 'completed' ? 'Available after printing is complete' : 'Record received COD cash'} onClick={() => void markCashCollected(order)}>Mark collected</Button>}</td>
                 </tr>)}
                 {visibleOrders.length === 0 && <tr><td className="p-8 text-center text-muted-foreground" colSpan={7}>No orders found.</td></tr>}
               </tbody>
