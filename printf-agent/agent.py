@@ -81,157 +81,120 @@ class PrintFAgent:
         with open(config_file, 'r') as f:
             return json.load(f)
     
-    def authenticate(self) -> bool:
-        """Verify PrintF API key with database."""
+    def _edge_call(self, action: str, **payload) -> Optional[Dict[str, Any]]:
+        """Call the authenticated PrintF v2 printer-agent Edge Function."""
         try:
-            response = self.supabase.table("printfs").select("id, name, api_key").eq(
-                "id", self.printf_id
-            ).single().execute()
-            
-            if response.data:
-                if response.data.get("api_key") == self.api_key:
-                    self.logger.info(f"Authenticated as: {response.data.get('name')}")
-                    return True
-                else:
-                    self.logger.error("API key mismatch")
-                    return False
-            else:
-                self.logger.error(f"PrintF not found: {self.printf_id}")
-                return False
-                
-        except Exception as e:
-            self.logger.error(f"Authentication failed: {e}")
-            return False
-    
-    def update_status(self, status: str = "online"):
-        """Update PrintF status and last_seen timestamp."""
-        try:
-            self.supabase.table("printfs").update({
-                "status": status,
-                "last_seen": datetime.utcnow().isoformat()
-            }).eq("id", self.printf_id).execute()
-            
-            self.logger.debug(f"Status updated: {status}")
-        except Exception as e:
-            self.logger.error(f"Failed to update status: {e}")
-    
-    def update_supplies(self, paper_level: int = None, ink_level: int = None):
-        """Update printer supply levels."""
-        try:
-            update_data = {}
-            if paper_level is not None:
-                update_data["paper_level"] = paper_level
-            if ink_level is not None:
-                update_data["ink_level"] = ink_level
-            
-            if update_data:
-                self.supabase.table("printfs").update(update_data).eq(
-                    "id", self.printf_id
-                ).execute()
-                self.logger.debug(f"Supplies updated: {update_data}")
-        except Exception as e:
-            self.logger.error(f"Failed to update supplies: {e}")
-    
-    def poll_jobs(self) -> List[Dict[str, Any]]:
-        """Poll for pending print jobs."""
-        try:
-            self.logger.debug(f"Polling for jobs for PrintF: {self.printf_id}")
-            
-            response = self.supabase.table("print_jobs").select(
-                "*"
-            ).eq(
-                "printf_id", self.printf_id
-            ).eq(
-                "status", "ready"
-            ).eq(
-                "locked", False
-            ).order(
-                "created_at"
-            ).execute()
-            
-            jobs = response.data or []
-            if len(jobs) > 0:
-                self.logger.info(f"Found {len(jobs)} pending job(s)")
-            
-            # Check for mismatched jobs (debug only)
-            if len(jobs) == 0:
-                # Optional: Check if any ready jobs exist for OTHER printers to debug config
-                pass
-                
-            return jobs
-        except Exception as e:
-            self.logger.error(f"Failed to poll jobs: {e}")
-            return []
-    
-    def lock_job(self, job_id: str) -> bool:
-        """Lock a job to prevent concurrent processing."""
-        try:
-            response = self.supabase.table("print_jobs").update({
-                "locked": True,
-                "status": "printing"
-            }).eq("id", job_id).eq("locked", False).execute()
-            
-            return len(response.data) > 0 if response.data else False
-        except Exception as e:
-            self.logger.error(f"Failed to lock job {job_id}: {e}")
-            return False
-    
-    def update_job_status(self, job_id: str, status: str):
-        """Update job status."""
-        try:
-            self.supabase.table("print_jobs").update({
-                "status": status,
-                "locked": False
-            }).eq("id", job_id).execute()
-            
-            self.logger.info(f"Job {job_id} status updated to: {status}")
-        except Exception as e:
-            self.logger.error(f"Failed to update job status: {e}")
-    
-    def log_event(self, message: str, log_type: str = "info", job_id: str = None, metadata: dict = None):
-        """Log an event to the database."""
-        try:
-            self.supabase.table("logs").insert({
-                "type": log_type,
-                "message": message,
-                "printf_id": self.printf_id,
-                "job_id": job_id,
-                "metadata": metadata or {}
-            }).execute()
-        except Exception as e:
-            self.logger.error(f"Failed to log event: {e}")
-    
-    def download_file(self, file_path: str, job_id: str) -> Optional[Path]:
-        """Download file from Supabase Storage."""
-        try:
-            # Expected file_path: jobs/filename.pdf
-            # Bucket is always 'print-files' based on schema
-            bucket = "print-files"
-            object_path = file_path
-            
-            self.logger.info(f"Downloading: {bucket}/{object_path}")
-            
-            # Download file
-            response = self.supabase.storage.from_(bucket).download(object_path)
-            
-            if response:
-                # Save to local file
-                filename = Path(object_path).name
-                local_path = self.download_path / f"{job_id}_{filename}"
-                
-                with open(local_path, 'wb') as f:
-                    f.write(response)
-                
-                self.logger.info(f"Downloaded to: {local_path}")
-                return local_path
-            else:
-                self.logger.error(f"Empty response downloading file")
+            base_url = self.config["supabase_url"].rstrip("/")
+            publishable_key = self.config["supabase_anon_key"]
+            response = httpx.post(
+                f"{base_url}/functions/v1/printer-agent",
+                headers={
+                    "apikey": publishable_key,
+                    "Authorization": f"Bearer {publishable_key}",
+                    "Content-Type": "application/json",
+                    "x-printf-id": self.printf_id,
+                    "x-api-key": self.api_key,
+                },
+                json={"action": action, **payload},
+                timeout=30.0,
+            )
+            response.raise_for_status()
+            body = response.json()
+            if not isinstance(body, dict):
+                self.logger.error("Printer-agent endpoint returned an unexpected response")
                 return None
-                
-        except Exception as e:
-            self.logger.error(f"Failed to download file: {e}")
+            if body.get("error"):
+                self.logger.warning("Printer-agent %s rejected request: %s", action, body.get("error"))
+                return None
+            return body
+        except httpx.HTTPStatusError as exc:
+            self.logger.warning(
+                "Printer-agent %s HTTP status %s", action, exc.response.status_code
+            )
+        except (httpx.HTTPError, ValueError, KeyError) as exc:
+            self.logger.warning("Printer-agent %s request failed: %s", action, exc)
+        except Exception as exc:
+            self.logger.exception("Unexpected printer-agent %s error: %s", action, exc)
+        return None
+
+    def authenticate(self) -> bool:
+        """Authenticate this station through the PrintF v2 Edge Function."""
+        result = self._edge_call("authenticate")
+        if result and result.get("success") and result.get("station", {}).get("id") == self.printf_id:
+            self.logger.info("Authenticated with PrintF v2 printer-agent API")
+            return True
+        self.logger.error("PrintF station authentication failed; retrying")
+        return False
+
+    def update_status(self, status: str = "online"):
+        """Send an authenticated heartbeat to the printer-agent Edge Function."""
+        self._edge_call("heartbeat", status=status)
+
+    def update_supplies(self, paper_level: int = None, ink_level: int = None):
+        """Report printer supply levels through an authenticated heartbeat."""
+        payload = {"status": "online"}
+        if paper_level is not None:
+            payload["paper_level"] = max(0, min(100, int(paper_level)))
+        if ink_level is not None:
+            payload["ink_level"] = max(0, min(100, int(ink_level)))
+        self._edge_call("heartbeat", **payload)
+
+    def poll_jobs(self) -> List[Dict[str, Any]]:
+        """Poll for ready jobs using the authenticated PrintF v2 printer-agent API."""
+        result = self._edge_call("poll")
+        jobs = result.get("jobs", []) if result else []
+        if not isinstance(jobs, list):
+            self.logger.warning("Printer-agent returned an invalid jobs list")
+            return []
+        if jobs:
+            self.logger.info("Found %s ready print job(s)", len(jobs))
+        return jobs
+
+    def lock_job(self, job_id: str) -> bool:
+        """Atomically lock a ready job for this station."""
+        result = self._edge_call("lock", job_id=job_id)
+        return bool(result and result.get("locked"))
+
+    def update_job_status(self, job_id: str, status: str):
+        """Update this station's assigned job through the Edge Function."""
+        result = self._edge_call("update_job", job_id=job_id, status=status)
+        if result and result.get("success"):
+            self.logger.info("Job %s status updated to %s", job_id, status)
+        else:
+            self.logger.error("Failed to update job %s status to %s", job_id, status)
+
+    def log_event(self, message: str, log_type: str = "info", job_id: str = None, metadata: dict = None):
+        """Write an agent event through the authenticated printer-agent API."""
+        payload = {"message": str(message)[:500], "type": log_type}
+        if job_id:
+            payload["job_id"] = job_id
+        if metadata:
+            payload["metadata"] = metadata
+        self._edge_call("log", **payload)
+
+    def download_file(self, file_path: str, job_id: str) -> Optional[Path]:
+        """Download a short-lived signed URL issued for this station's assigned job."""
+        try:
+            result = self._edge_call("file_url", job_id=job_id)
+            signed_url = result.get("signed_url") if result else None
+            if not signed_url:
+                self.logger.error("No authorized download URL returned for job %s", job_id)
+                return None
+            response = httpx.get(signed_url, timeout=120.0, follow_redirects=True)
+            response.raise_for_status()
+            content_length = len(response.content)
+            if content_length == 0 or content_length > 50 * 1024 * 1024:
+                self.logger.error("Downloaded file has an invalid size: %s bytes", content_length)
+                return None
+            filename = Path(file_path).name
+            local_path = self.download_path / f"{job_id}_{filename}"
+            local_path.write_bytes(response.content)
+            self.logger.info("Downloaded authorized job file to %s", local_path)
+            return local_path
+        except Exception as exc:
+            self.logger.error("Failed to download job file %s: %s", job_id, exc)
             return None
-    
+
     def get_default_printer(self) -> str:
         """Get the default Windows printer name."""
         if sys.platform != 'win32':
@@ -495,53 +458,51 @@ class PrintFAgent:
         self.cleanup_file(local_file)
     
     def run(self):
-        """Main agent loop."""
+        """Main station loop; reconnect automatically after temporary API/network errors."""
         self.logger.info("Starting PrintF Agent...")
-        
-        # Authenticate
-        if not self.authenticate():
-            self.logger.error("Authentication failed. Exiting.")
-            return
-        
         self.running = True
-        self.update_status("online")
-        
-        # List available printers
-        printers = self.list_printers()
-        self.logger.info(f"Available printers: {printers}")
-        
-        default_printer = self.get_default_printer()
-        self.logger.info(f"Default printer: {default_printer}")
-        
-        self.log_event("PrintF Agent started", "info")
-        
+        retry_delay = 5
+        authenticated = False
         try:
             while self.running:
-                # Update heartbeat
-                self.update_status("online")
-                
-                # Poll for jobs
-                jobs = self.poll_jobs()
-                
-                if jobs:
-                    self.logger.info(f"Found {len(jobs)} pending job(s)")
-                    
+                if not authenticated:
+                    authenticated = self.authenticate()
+                    if not authenticated:
+                        time.sleep(min(30, retry_delay))
+                        retry_delay = min(30, retry_delay * 2)
+                        continue
+                    retry_delay = 5
+                    self.update_status("online")
+                    printers = self.list_printers()
+                    self.logger.info("Available printers: %s", printers)
+                    self.logger.info("Default printer: %s", self.get_default_printer())
+                    self.log_event("PrintF Agent started/reconnected", "info")
+
+                try:
+                    self.update_status("online")
+                    jobs = self.poll_jobs()
                     for job in jobs:
-                        self.process_job(job)
-                
-                # Wait before next poll
-                time.sleep(self.poll_interval)
-                
-        except KeyboardInterrupt:
-            self.logger.info("Received shutdown signal")
-        except Exception as e:
-            self.logger.error(f"Agent error: {e}")
+                        if not self.running:
+                            break
+                        try:
+                            self.process_job(job)
+                        except Exception as exc:
+                            self.logger.exception("Unhandled error processing job %s: %s", job.get("id"), exc)
+                            if job.get("id"):
+                                self.update_job_status(job["id"], "failed")
+                                self.log_event("Unhandled print-job processing error", "error", job["id"])
+                    time.sleep(max(2, min(60, int(self.poll_interval))))
+                except Exception as exc:
+                    self.logger.exception("Temporary agent loop error: %s", exc)
+                    authenticated = False
+                    time.sleep(retry_delay)
+                    retry_delay = min(30, retry_delay * 2)
         finally:
             self.running = False
             self.update_status("offline")
             self.log_event("PrintF Agent stopped", "info")
             self.logger.info("PrintF Agent stopped")
-    
+
     def stop(self):
         """Stop the agent."""
         self.running = False
