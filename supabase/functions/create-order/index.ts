@@ -6,7 +6,6 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
 function response(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 }
@@ -44,7 +43,7 @@ function checkoutResponse(order: any, payment: any, keyId: string, callbackUrl?:
       amount: Math.round(Number(payment.amount) * 100),
       currency: "INR",
       name: "PrintF",
-      description: `Print Job #${order.order_number}`,
+      description: \`Print Job #\${order.order_number}\`,
       order_id: order.razorpay_order_id,
     },
   };
@@ -53,14 +52,12 @@ function checkoutResponse(order: any, payment: any, keyId: string, callbackUrl?:
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
   if (req.method !== "POST") return response({ error: "Method not allowed" }, 405);
-
   try {
     const body = await req.json();
-    const { job_id, amount, customer_name, customer_mobile, customer_email, payment_method, callback_url } = body ?? {};
+    const { job_id, amount, customer_name, customer_mobile, payment_method, callback_url } = body ?? {};
     const method = payment_method ?? "razorpay";
     if (typeof job_id !== "string" || !UUID_RE.test(job_id)) return response({ error: "Valid job_id is required" }, 400);
     if (!validCustomer(customer_name, customer_mobile)) return response({ error: "A valid customer name and mobile number are required" }, 400);
-    if (typeof customer_email !== "string" || customer_email.trim().length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(customer_email.trim())) return response({ error: "A valid customer email is required" }, 400);
     if (!["razorpay", "cod"].includes(method)) return response({ error: "Unsupported payment method" }, 400);
     if (typeof amount !== "number" || !Number.isFinite(amount) || amount < 1 || amount > 100000) {
       return response({ error: "Valid payment amount is required" }, 400);
@@ -74,7 +71,6 @@ serve(async (req) => {
     if (!supabaseUrl || !serviceKey) return response({ error: "Server configuration error" }, 500);
     const supabase = createClient(supabaseUrl, serviceKey);
 
-    // Prevent checkout retries from creating multiple orders for a single job.
     const { data: existing, error: existingError } = await supabase.from("print_orders")
       .select("*").eq("print_job_id", job_id).order("created_at", { ascending: false }).limit(1).maybeSingle();
     if (existingError) {
@@ -82,21 +78,16 @@ serve(async (req) => {
       return response({ error: "Unable to check existing order" }, 500);
     }
     if (existing && existing.order_status !== "cancelled") {
-      if (!existing.customer_email || existing.customer_email.toLowerCase() !== customer_email.trim().toLowerCase()) return response({ error: "This print job is linked to a different customer email. Please start a new print job." }, 403);
-      if ((existing.payment_status === "paid" || existing.cod_collected === true) && existing.payment_method === method) {
-        return response({
-          success: true, already_paid: true, print_order_id: existing.id,
-          order_number: existing.order_number, payment_method: existing.payment_method,
-        });
+      if (existing.payment_status === "paid" || existing.cod_collected === true) {
+        return response({ success: true, already_paid: true, print_order_id: existing.id,
+          order_number: existing.order_number, payment_method: existing.payment_method });
       }
       if (existing.payment_method !== method) {
         return response({ error: "An order already exists for this print job with a different payment method. Please use that order or start a new print job." }, 409);
       }
       if (method === "cod") {
-        return response({
-          success: true, print_order_id: existing.id, order_number: existing.order_number,
-          payment_method: "cod", amount: Number(existing.amount),
-        });
+        return response({ success: true, print_order_id: existing.id, order_number: existing.order_number,
+          payment_method: "cod", amount: Number(existing.amount) });
       }
       const razorpayKeyId = Deno.env.get("RAZORPAY_KEY_ID");
       if (!razorpayKeyId || !existing.razorpay_order_id) return response({ error: "Payment service is not configured" }, 503);
@@ -105,7 +96,7 @@ serve(async (req) => {
       if (priorPaymentError || !priorPayment) return response({ error: "Existing payment order could not be resumed" }, 409);
       const origin = req.headers.get("origin");
       return response(checkoutResponse(existing, priorPayment, razorpayKeyId,
-        callback_url || (origin ? `${origin}/payment-callback` : undefined)));
+        callback_url || (origin ? \`\${origin}/payment-callback\` : undefined)));
     }
 
     const { data: job, error: jobError } = await supabase.from("print_jobs")
@@ -122,55 +113,45 @@ serve(async (req) => {
       return response({ error: "Payment amount does not match the recorded print settings. Return to the settings screen and try again." }, 400);
     }
 
-    // Keep a job pending until email OTP verification. Give the checkout/OTP flow 24 hours to finish.
-    const checkoutExpiry = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
-    const { data: eligibleJob, error: expiryError } = await supabase.from("print_jobs")
-      .update({ expiry_time: checkoutExpiry, locked: false })
-      .eq("id", job_id).eq("status", "pending").eq("locked", false).select("id").maybeSingle();
-    if (expiryError || !eligibleJob) {
-      return response({ error: "Print job is no longer available for checkout" }, 409);
-    }
-
     if (method === "cod") {
       const { data: order, error: orderError } = await supabase.from("print_orders").insert({
         customer_name: customer_name.trim(),
         customer_mobile: customer_mobile.trim(),
-        customer_email: customer_email.trim().toLowerCase(),
         print_job_id: job_id,
         amount: expectedAmount,
         payment_method: "cod",
         payment_status: "pending",
-        order_status: "pending",
+        order_status: "accepted",
         cod_collected: false,
       }).select("id, order_number, amount, payment_method, payment_status, order_status, cod_collected").single();
       if (orderError || !order) {
         console.error("COD order insert failed:", orderError?.message ?? "no row returned");
         return response({ error: "Could not create Cash on Delivery order" }, 500);
       }
-      // Deliberately do not queue yet: secure-otp releases this job only after verification.
-      await supabase.from("logs").insert({
-        type: "info", message: "Cash on Delivery order created",
-        job_id, metadata: { order_number: order.order_number, amount: expectedAmount },
-      });
-      return response({
-        success: true, print_order_id: order.id, order_number: order.order_number,
-        payment_method: "cod", amount: expectedAmount, already_paid: false,
-      });
+      const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+      const { data: queued, error: queueError } = await supabase.from("print_jobs")
+        .update({ status: "ready", expiry_time: expiresAt, locked: false })
+        .eq("id", job_id).eq("status", "pending").select("id").maybeSingle();
+      if (queueError || !queued) {
+        await supabase.from("print_orders").update({ order_status: "cancelled" }).eq("id", order.id);
+        console.error("COD job queue failed:", queueError?.message ?? "job state changed");
+        return response({ error: "The print job could not be queued. Please contact support." }, 409);
+      }
+      await supabase.from("logs").insert({ type: "info", message: "Cash on Delivery order created", job_id,
+        metadata: { order_number: order.order_number, amount: expectedAmount } });
+      return response({ success: true, print_order_id: order.id, order_number: order.order_number,
+        payment_method: "cod", amount: expectedAmount, already_paid: false });
     }
 
     const razorpayKeyId = Deno.env.get("RAZORPAY_KEY_ID");
     const razorpayKeySecret = Deno.env.get("RAZORPAY_KEY_SECRET");
     if (!razorpayKeyId || !razorpayKeySecret) return response({ error: "Payment service is not configured" }, 503);
-
-    const authHeader = btoa(`${razorpayKeyId}:${razorpayKeySecret}`);
+    const authHeader = btoa(\`\${razorpayKeyId}:\${razorpayKeySecret}\`);
     const orderResponse = await fetch("https://api.razorpay.com/v1/orders", {
       method: "POST",
-      headers: { "Content-Type": "application/json", "Authorization": `Basic ${authHeader}` },
-      body: JSON.stringify({
-        amount: Math.round(expectedAmount * 100), currency: "INR",
-        receipt: `job_${job_id.slice(0, 8)}`,
-        notes: { job_id, payment_method: "razorpay" },
-      }),
+      headers: { "Content-Type": "application/json", "Authorization": \`Basic \${authHeader}\` },
+      body: JSON.stringify({ amount: Math.round(expectedAmount * 100), currency: "INR",
+        receipt: \`job_\${job_id.slice(0, 8)}\`, notes: { job_id, payment_method: "razorpay" } }),
     });
     const orderText = await orderResponse.text();
     if (!orderResponse.ok) {
@@ -184,7 +165,6 @@ serve(async (req) => {
     const { data: printOrder, error: printOrderError } = await supabase.from("print_orders").insert({
       customer_name: customer_name.trim(),
       customer_mobile: customer_mobile.trim(),
-      customer_email: customer_email.trim().toLowerCase(),
       print_job_id: job_id,
       amount: expectedAmount,
       payment_method: "razorpay",
@@ -197,7 +177,6 @@ serve(async (req) => {
       console.error("Print order insert failed:", printOrderError?.message ?? "no row returned");
       return response({ error: "Could not save the order record" }, 500);
     }
-
     const { data: payment, error: paymentError } = await supabase.from("payments").insert({
       job_id, amount: expectedAmount, status: "pending", gateway_ref: razorpayOrder.id,
     }).select("amount").single();
@@ -206,14 +185,11 @@ serve(async (req) => {
       console.error("Payment record insert failed:", paymentError?.message ?? "no row returned");
       return response({ error: "Could not save the payment record" }, 500);
     }
-
-    await supabase.from("logs").insert({
-      type: "info", message: "Razorpay order created", job_id,
-      metadata: { order_number: printOrder.order_number, gateway_ref: razorpayOrder.id, amount: expectedAmount },
-    });
+    await supabase.from("logs").insert({ type: "info", message: "Razorpay order created", job_id,
+      metadata: { order_number: printOrder.order_number, gateway_ref: razorpayOrder.id, amount: expectedAmount } });
     const origin = req.headers.get("origin");
     return response(checkoutResponse(printOrder, payment, razorpayKeyId,
-      callback_url || (origin ? `${origin}/payment-callback` : undefined)));
+      callback_url || (origin ? \`\${origin}/payment-callback\` : undefined)));
   } catch (error) {
     console.error("create-order failed:", error instanceof Error ? error.message : "unknown");
     return response({ error: "Invalid request or internal server error" }, 500);
