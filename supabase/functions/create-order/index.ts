@@ -177,6 +177,7 @@ serve(async (req) => {
     const { data: printOrder, error: printOrderError } = await supabase.from("print_orders").insert({
       customer_name: customer_name.trim(),
       customer_mobile: customer_mobile.trim(),
+      customer_email: customer_email.trim().toLowerCase(),
       print_job_id: job_id,
       amount: expectedAmount,
       payment_method: "razorpay",
