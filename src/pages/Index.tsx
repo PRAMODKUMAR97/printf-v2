@@ -34,6 +34,11 @@ const Index = () => {
     processingStage,
     email,
     setEmail,
+    customerName,
+    setCustomerName,
+    customerMobile,
+    setCustomerMobile,
+    orderConfirmation,
     selectPrintf,
     uploadFile,
     removeFile,
@@ -195,6 +200,10 @@ const Index = () => {
               <EmailInput
                 email={email}
                 onEmailChange={setEmail}
+                customerName={customerName}
+                onCustomerNameChange={setCustomerName}
+                customerMobile={customerMobile}
+                onCustomerMobileChange={setCustomerMobile}
                 onBack={() => setStep('settings')}
                 onNext={proceedToPayment}
                 isLoading={isLoading}
@@ -208,7 +217,8 @@ const Index = () => {
               job={job}
               amount={amount}
               email={email}
-              phone={undefined}
+              customerName={customerName}
+              phone={customerMobile}
               printerName={selectedPrinter?.name}
               printerLocation={selectedPrinter?.location}
               onBack={() => setStep('phone')}
@@ -222,6 +232,8 @@ const Index = () => {
               otp={otp}
               job={job}
               email={email}
+              paymentMethod={orderConfirmation?.payment_method}
+              orderNumber={orderConfirmation?.order_number}
               onNewPrint={reset}
               onVerified={() => setIsPrinting(true)}
             />
