@@ -2,23 +2,20 @@
 setlocal
 cd /d "%~dp0"
 
-net session >nul 2>&1
-if errorlevel 1 (
-  echo This installer must run as Administrator to register the Windows service.
-  echo Right-click install_service.bat and choose "Run as administrator".
-  pause
-  exit /b 1
-)
-
+REM Prepare local configuration before the Windows service starts.
 if not exist config.json (
+  if not exist config.example.json (
+    echo ERROR: config.example.json was not found.
+    pause
+    exit /b 1
+  )
   copy config.example.json config.json >nul
-  echo Created config.json from the safe template.
-  echo Enter the station UUID and matching API key from PrintF v2 before continuing.
-  start /wait notepad config.json
+  echo Created config.json from the non-secret template.
+  echo Fill printf_id and api_key with the values for the SAME PrintF v2 station.
+  notepad config.json
+  echo Save config.json and close Notepad before continuing.
+  pause
 )
-
-py -c "import json,sys; c=json.load(open('config.json',encoding='utf-8')); sys.exit(0 if all(c.get(k) and not str(c.get(k)).startswith('SET_') for k in ('printf_id','api_key')) else 1)"
-if errorlevel 1 goto config_error
 
 echo Installing PrintF Agent dependencies...
 py -m pip install --upgrade pip
@@ -30,38 +27,23 @@ echo Installing PrintF Agent as an automatic Windows service...
 py service.py --startup auto install
 if errorlevel 1 goto error
 
-echo Configuring automatic service recovery...
+REM Configure automatic startup and recovery when Windows reports a service failure.
 sc.exe config PrintFAgent start= auto
-if errorlevel 1 goto error
-sc.exe failure PrintFAgent reset= 86400 actions= restart/5000/restart/15000/restart/60000
-if errorlevel 1 goto error
+sc.exe failure PrintFAgent reset= 86400 actions= restart/5000/restart/10000/restart/30000
 sc.exe failureflag PrintFAgent 1
-if errorlevel 1 goto error
 
-choice /C YN /M "Disable sleep while plugged in for 24x7 printing"
-if errorlevel 2 goto skip_sleep
-powercfg /change standby-timeout-ac 0
-powercfg /change hibernate-timeout-ac 0
-
-:skip_sleep
+echo Starting PrintF Agent service...
 py service.py start
 if errorlevel 1 goto error
 
 echo.
 echo PrintF Agent service installed and started.
-echo Keep this PC, the printer, and network available for continuous service.
+echo Keep the printer, computer and network connected; disable Windows sleep for 24x7 operation.
+echo Test authentication later with: py agent.py --test
 pause
 exit /b 0
 
-:config_error
-echo.
-echo config.json still contains placeholder credentials or is invalid JSON.
-echo Edit printf_id and api_key, save the file, then run this installer again.
-pause
-exit /b 1
-
 :error
-echo.
-echo Installation failed. Check Python, printer config, and Windows service permissions.
+echo Installation failed. Check Python, credentials, and run this script as Administrator.
 pause
 exit /b 1
