@@ -64,16 +64,18 @@ serve(async (req) => {
       .select("id, printf_id, file_name, file_size, settings_json, status, locked, expiry_time, created_at, updated_at, file_path")
       .eq("id", record.job_id).maybeSingle();
     if (jobError || !job) return json({ error: "Print job not found" }, 404);
-    if (job.status === "expired" || new Date(job.expiry_time).getTime() < Date.now())
-      return json({ error: "Print job has expired" }, 410);
+    const jobExpiry = new Date(job.expiry_time).getTime();
+    const isExpired = job.status === "expired" ||
+      (!["completed", "failed", "printing"].includes(job.status) &&
+       (!Number.isFinite(jobExpiry) || jobExpiry < Date.now()));
     if (action === "status") {
       // Return only what the customer status screen needs; keep station IDs, file paths,
-      // file sizes, and other operational fields private.
+      // file sizes, and other operational fields private. Expired jobs remain viewable.
       const safeJob = {
         id: job.id,
         file_name: job.file_name,
         settings_json: job.settings_json,
-        status: job.status,
+        status: isExpired ? "expired" : job.status,
         locked: job.locked,
         expiry_time: job.expiry_time,
         created_at: job.created_at,
@@ -81,6 +83,7 @@ serve(async (req) => {
       };
       return json({ job: safeJob, expires_at: record.expires_at });
     }
+    if (isExpired) return json({ error: "Print job has expired" }, 410);
     if (!["ready", "printing", "completed"].includes(job.status))
       return json({ error: "Job is not released for download" }, 409);
     const { data: signed, error: signedError } = await supabase.storage.from("print-files").createSignedUrl(job.file_path, 120);
