@@ -125,10 +125,19 @@ export function usePrintJob() {
 
       // The storage policy accepts only jobs/<uuid>.<extension>, matching this path.
       const filePath = 'jobs/' + crypto.randomUUID() + '.' + fileExt;
+      const mimeByExtension: Record<string, string> = {
+        pdf: 'application/pdf',
+        doc: 'application/msword',
+        docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        png: 'image/png',
+        jpg: 'image/jpeg',
+        jpeg: 'image/jpeg',
+      };
+      const contentType = selectedFile.type || mimeByExtension[fileExt];
       const { error: uploadError } = await supabase.storage.from('print-files').upload(filePath, selectedFile, {
         cacheControl: '3600',
         upsert: false,
-        contentType: selectedFile.type || undefined,
+        contentType,
       });
       if (uploadError) throw uploadError;
 
