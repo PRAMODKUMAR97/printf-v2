@@ -21,8 +21,8 @@ function calculateAmount(settingsValue: unknown) {
   const layout = Number(settings.layout ?? 1);
   const selectedPages = Number(settings.selected_pages ?? settings.page_count ?? 1);
   const sheets = Number(settings.sheets ?? Math.ceil(selectedPages / Math.max(1, layout)));
-  if (!Number.isInteger(copies) || copies < 1 || copies > 100 ||
-      !Number.isInteger(layout) || layout < 1 || layout > 16 ||
+  if (!Number.isInteger(copies) || copies < 1 || copies > 50 ||
+      ![1, 2, 4].includes(layout) ||
       !Number.isInteger(selectedPages) || selectedPages < 1 || selectedPages > 10000 ||
       !Number.isInteger(sheets) || sheets < 1 || sheets > 10000) return null;
   return Math.round(sheets * copies * (settings.color === true ? 10 : 2) * 100) / 100;
