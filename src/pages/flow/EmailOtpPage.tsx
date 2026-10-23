@@ -168,7 +168,7 @@ export default function EmailOtpPage() {
               maxLength={OTP_LENGTH}
               placeholder="Enter code"
               value={code}
-              onChange={(event) => setCode(event.target.value.replace(/\\D/g, '').slice(0, OTP_LENGTH))}
+              onChange={(event) => setCode(event.target.value.replace(/\D/g, '').slice(0, OTP_LENGTH))}
               onKeyDown={(event) => { if (event.key === 'Enter') void verifyOtp(); }}
               disabled={isVerifying}
               aria-describedby="printf-otp-help"
