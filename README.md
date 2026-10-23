@@ -29,16 +29,15 @@ PrintF lets customers upload documents, choose print settings, pay online or cho
 4. Run `npm run dev`.
 5. Run `npm run build` to validate a production bundle.
 
-## PrintF v2 configuration
+## PrintF v2 configuration and deployment
 
-The browser client is configured for the Supabase project reference `unqongjwukgjbasvpyup`. The publishable key may be used in browser code; the service-role key and gateway secrets must never be included in frontend source or committed files.
+The browser client is configured for the Supabase project reference `unqongjwukgjbasvpyup`. The publishable key may be used in browser code; never put a service-role key or gateway secret in frontend source.
 
-Set these secrets in Supabase Edge Function Secrets:
+Live Supabase changes are **not deployed automatically on every Git push**. Use GitHub Actions after adding the required encrypted repository secrets under **Settings → Secrets and variables → Actions**:
 
-- `RAZORPAY_KEY_ID`
-- `RAZORPAY_KEY_SECRET`
-- `RESEND_API_KEY`
-- `RESEND_FROM_EMAIL` (optional, if the default sender is configured/verified)
+**Deploy PrintF v2 Edge Functions** requires `SUPABASE_ACCESS_TOKEN`, `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, `RESEND_API_KEY`, and `RESEND_FROM_EMAIL` (a verified Resend sender). This workflow writes the server-side payment/email secrets to PrintF v2 and deploys all 13 function folders from the repository.
+
+**Apply PrintF v2 Database Migration** requires `SUPABASE_DB_URL`, the PrintF v2 PostgreSQL connection string with SSL enabled. It applies `supabase/migrations/20261023000000_printf_v2_orders_storage_policies.sql` and records the migration version. Review that SQL file before manually dispatching the workflow.
 
 The legacy `cashfree-create-order` and `cashfree-webhook` names return a deprecation response; active checkout is Razorpay + COD.
 
@@ -46,7 +45,7 @@ The legacy `cashfree-create-order` and `cashfree-webhook` names return a depreca
 
 Copy `printf-agent/config.example.json` to `printf-agent/config.json`. Set the station UUID and its matching station API key from the same `public.printfs` row. Run `printf-agent/install_service.bat` as Administrator to install/start the Windows service. Do not commit the real config file or runtime logs.
 
-For PDF settings such as page ranges, 2-up/4-up layout, copies, colour and duplex, install SumatraPDF on the printer PC so the agent can use its silent-print interface. Without it, the fallback uses Windows shell printing and relies on printer-driver defaults for colour/duplex. Word documents also rely on their registered Windows print handler for driver-specific options.
+For PDF settings such as page ranges, 2-up/4-up layout, copies, colour and duplex, install SumatraPDF on the printer PC so the agent can use its silent-print interface. Without it, the fallback uses Windows shell printing and relies on printer-driver defaults for colour/duplex. For DOC/DOCX files, install LibreOffice so the agent can convert to PDF and use the same settings; otherwise it falls back to the Windows registered handler, where some settings depend on that handler and printer driver.
 
 24/7 availability depends on continuous power, network, printer, and backend availability. The service installer configures automatic startup and restart recovery and disables no system settings by itself; disable Windows sleep manually. No software agent can guarantee uninterrupted printing if the PC, printer, power, or network is unavailable.
 
