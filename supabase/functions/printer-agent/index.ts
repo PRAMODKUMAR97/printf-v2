@@ -6,7 +6,7 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-printf-id, x-api-key",
 };
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const JOB_COLUMNS = "id, printf_id, file_name, file_size, settings_json, status, locked, expiry_time, created_at";
+const JOB_COLUMNS = "id, printf_id, file_path, file_name, file_size, settings_json, status, locked, expiry_time, created_at";
 const ALLOWED_STATUS = ["printing", "completed", "failed"];
 const ALLOWED_LOG_TYPES = ["info", "success", "error", "warning"];
 function json(body: unknown, status = 200) {
