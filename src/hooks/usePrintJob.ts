@@ -106,13 +106,27 @@ export function usePrintJob() {
       await new Promise(resolve => setTimeout(resolve, 600));
       setUploadProgress(50);
 
-      const fileExt = selectedFile.name.split('.').pop()?.toLowerCase() || 'pdf';
-      const fileName = crypto.randomUUID() + '.' + fileExt;
-      const filePath = 'jobs/' + fileName;
-      const { error: uploadError } = await supabase.storage.from('print-files').upload(filePath, selectedFile, {
-        cacheControl: '3600',
-        upsert: false,
+      const fileExt = selectedFile.name.split('.').pop()?.toLowerCase() || '';
+      const allowedExtensions = new Set(['pdf', 'doc', 'docx', 'png', 'jpg', 'jpeg']);
+      const maxFileSize = 50 * 1024 * 1024;
+      if (!allowedExtensions.has(fileExt) || selectedFile.size <= 0 || selectedFile.size > maxFileSize) {
+        throw new Error('Use a supported file type (PDF, DOC, DOCX, PNG, JPG) up to 50 MB.');
+      }
+
+      // Ask the server for a short-lived, one-use upload URL. The bucket stays private.
+      const { data: uploadInfo, error: signingError } = await supabase.functions.invoke('secure-upload', {
+        body: { file_name: selectedFile.name, file_id: crypto.randomUUID() },
       });
+      if (signingError || !uploadInfo?.success || !uploadInfo.path || !uploadInfo.token) {
+        throw signingError || new Error(uploadInfo?.error || 'Could not prepare secure upload.');
+      }
+      const filePath = uploadInfo.path as string;
+      const { error: uploadError } = await supabase.storage.from('print-files').uploadToSignedUrl(
+        filePath,
+        uploadInfo.token as string,
+        selectedFile,
+        { cacheControl: '3600', contentType: selectedFile.type || undefined },
+      );
       if (uploadError) throw uploadError;
       setUploadProgress(70);
 
