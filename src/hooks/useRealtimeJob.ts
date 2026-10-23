@@ -10,11 +10,9 @@ export function useRealtimeJob(jobId: string | null) {
   const [isSubscribed, setIsSubscribed] = useState(false);
 
   useEffect(() => {
-    if (!jobId) {
-      setJob(null);
-      setIsSubscribed(false);
-      return;
-    }
+    setJob(null);
+    setIsSubscribed(false);
+    if (!jobId) return;
 
     let cancelled = false;
     let fetching = false;
