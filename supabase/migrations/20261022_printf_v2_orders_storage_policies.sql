@@ -169,3 +169,41 @@ DROP TRIGGER IF EXISTS sync_print_order_status_from_job ON public.print_jobs;
 CREATE TRIGGER sync_print_order_status_from_job AFTER UPDATE OF status ON public.print_jobs
   FOR EACH ROW WHEN (OLD.status IS DISTINCT FROM NEW.status)
   EXECUTE FUNCTION public.sync_print_order_status_from_job();
+
+-- Administrative terminal order changes must stop a job that has not started printing.
+-- If the job is already printing, leave the physical print outcome to the station agent.
+CREATE OR REPLACE FUNCTION public.sync_print_job_status_from_order()
+RETURNS trigger LANGUAGE plpgsql SET search_path = public AS $
+DECLARE next_job_status text;
+BEGIN
+  IF NEW.print_job_id IS NULL OR OLD.order_status IS NOT DISTINCT FROM NEW.order_status THEN
+    RETURN NEW;
+  END IF;
+
+  next_job_status := CASE NEW.order_status
+    WHEN 'cancelled' THEN 'expired'
+    WHEN 'failed' THEN 'failed'
+    WHEN 'completed' THEN 'completed'
+    ELSE NULL
+  END;
+
+  IF next_job_status IS NULL THEN
+    RETURN NEW;
+  END IF;
+
+  UPDATE public.print_jobs
+    SET status = next_job_status,
+        locked = false
+    WHERE id = NEW.print_job_id
+      AND status IN ('pending', 'ready')
+      AND status IS DISTINCT FROM next_job_status;
+
+  RETURN NEW;
+END;
+$;
+
+DROP TRIGGER IF EXISTS sync_print_job_status_from_order ON public.print_orders;
+CREATE TRIGGER sync_print_job_status_from_order
+  AFTER UPDATE OF order_status ON public.print_orders
+  FOR EACH ROW WHEN (OLD.order_status IS DISTINCT FROM NEW.order_status)
+  EXECUTE FUNCTION public.sync_print_job_status_from_order();
