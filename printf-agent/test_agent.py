@@ -9,6 +9,7 @@ from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).parent))
 from agent import PrintFAgent
+import fitz
 
 
 class TestPrintFAgent(unittest.TestCase):
@@ -94,6 +95,66 @@ class TestPrintFAgent(unittest.TestCase):
                 job_id="550e8400-e29b-41d4-a716-446655440001",
                 status="completed",
             )
+
+    def test_pdf_page_range_is_applied(self):
+        agent = PrintFAgent("test_config.json")
+        source = Path(agent.download_path) / "four-pages.pdf"
+        document = fitz.open()
+        for number in range(1, 5):
+            page = document.new_page()
+            page.insert_text((72, 72), "page-" + str(number))
+        document.save(source)
+        document.close()
+        prepared = agent._prepare_pdf_for_print(source, {"page_range": "2,4", "layout": 1})
+        try:
+            with fitz.open(prepared) as output:
+                self.assertEqual(output.page_count, 2)
+                self.assertIn("page-2", output[0].get_text())
+                self.assertIn("page-4", output[1].get_text())
+        finally:
+            prepared.unlink(missing_ok=True)
+            source.unlink(missing_ok=True)
+
+    def test_two_up_layout_uses_landscape_a4(self):
+        agent = PrintFAgent("test_config.json")
+        source = Path(agent.download_path) / "four-pages.pdf"
+        document = fitz.open()
+        for number in range(1, 5):
+            page = document.new_page()
+            page.insert_text((72, 72), "page-" + str(number))
+        document.save(source)
+        document.close()
+        prepared = agent._prepare_pdf_for_print(source, {"page_range": "1-3", "layout": 2})
+        try:
+            with fitz.open(prepared) as output:
+                self.assertEqual(output.page_count, 2)
+                self.assertGreater(output[0].rect.width, output[0].rect.height)
+                self.assertIn("page-1", output[0].get_text())
+                self.assertIn("page-2", output[0].get_text())
+        finally:
+            prepared.unlink(missing_ok=True)
+            source.unlink(missing_ok=True)
+
+    def test_four_up_layout_places_four_pages_on_one_sheet(self):
+        agent = PrintFAgent("test_config.json")
+        source = Path(agent.download_path) / "four-pages.pdf"
+        document = fitz.open()
+        for number in range(1, 5):
+            page = document.new_page()
+            page.insert_text((72, 72), "page-" + str(number))
+        document.save(source)
+        document.close()
+        prepared = agent._prepare_pdf_for_print(source, {"page_range": "", "layout": 4})
+        try:
+            with fitz.open(prepared) as output:
+                self.assertEqual(output.page_count, 1)
+                page_text = output[0].get_text()
+                for number in range(1, 5):
+                    self.assertIn("page-" + str(number), page_text)
+                self.assertGreater(output[0].rect.height, output[0].rect.width)
+        finally:
+            prepared.unlink(missing_ok=True)
+            source.unlink(missing_ok=True)
 
     def test_config_not_found(self):
         with self.assertRaises(FileNotFoundError):
