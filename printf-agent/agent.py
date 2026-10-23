@@ -13,6 +13,7 @@ import time
 import logging
 import tempfile
 import subprocess
+import shutil
 from pathlib import Path
 from datetime import datetime
 from typing import Optional, Dict, Any, List
@@ -247,7 +248,7 @@ class PrintFAgent:
             elif file_extension in [".jpg", ".jpeg", ".png", ".bmp", ".gif"]:
                 return self._print_image(file_path, printer_name, copies, color, duplex, settings)
             elif file_extension in [".doc", ".docx"]:
-                return self._print_office_doc(file_path, printer_name, copies)
+                return self._print_office_doc(file_path, printer_name, copies, color, duplex, settings)
             else:
                 # Try to print as raw text
                 return self._print_raw(file_path, printer_name, copies)
@@ -434,8 +435,51 @@ class PrintFAgent:
                 except Exception as exc:
                     self.logger.warning("Could not remove temporary image PDF %s: %s", temporary_pdf, exc)
 
-    def _print_office_doc(self, file_path: Path, printer_name: str, copies: int) -> bool:
-        """Print Office documents via the Windows registered print handler."""
+    def _print_office_doc(self, file_path: Path, printer_name: str, copies: int, color: bool,
+                          duplex: bool, settings: Dict[str, Any]) -> bool:
+        """Convert Word files with LibreOffice when installed, then apply PDF print settings."""
+        candidates = [
+            shutil.which("soffice"),
+            str(Path(os.environ.get("PROGRAMFILES", r"C:\Program Files")) / "LibreOffice" / "program" / "soffice.exe"),
+            str(Path(os.environ.get("PROGRAMFILES(X86)", r"C:\Program Files (x86)")) / "LibreOffice" / "program" / "soffice.exe"),
+        ]
+        soffice = next((candidate for candidate in candidates if candidate and os.path.exists(candidate)), None)
+
+        if soffice:
+            try:
+                with tempfile.TemporaryDirectory(prefix="printf-office-", dir=str(self.download_path)) as temp_dir:
+                    output_dir = Path(temp_dir)
+                    profile_dir = output_dir / "lo-profile"
+                    converted_pdf = output_dir / (file_path.stem + ".pdf")
+                    command = [
+                        soffice,
+                        f"-env:UserInstallation={profile_dir.as_uri()}",
+                        "--headless",
+                        "--convert-to", "pdf",
+                        "--outdir", str(output_dir),
+                        str(file_path.resolve()),
+                    ]
+                    self.logger.info("Converting Office document to PDF for controlled print settings")
+                    result = subprocess.run(
+                        command, capture_output=True, text=True, timeout=180, check=False
+                    )
+                    if result.returncode == 0 and converted_pdf.exists() and converted_pdf.stat().st_size > 0:
+                        return self._print_pdf(
+                            converted_pdf, printer_name, copies, color, duplex, settings
+                        )
+                    self.logger.warning(
+                        "LibreOffice PDF conversion failed (%s): %s",
+                        result.returncode, (result.stderr or result.stdout or "")[:500]
+                    )
+            except (subprocess.TimeoutExpired, OSError, RuntimeError) as exc:
+                self.logger.warning("LibreOffice conversion unavailable for %s: %s", file_path.name, exc)
+
+        # Fallback to the Windows registered handler if LibreOffice isn't installed.
+        # This fallback can honour copies via the print handler, but page range/layout,
+        # colour and duplex depend on the installed application and printer driver.
+        self.logger.warning(
+            "LibreOffice is unavailable; Office print settings beyond copies depend on the Windows print handler/driver."
+        )
         try:
             for _ in range(max(1, min(100, int(copies)))):
                 operation = win32api.ShellExecute(
@@ -450,7 +494,7 @@ class PrintFAgent:
                     self.logger.error("Windows Office print handler failed with code %s", operation)
                     return False
                 time.sleep(3)
-            self.logger.info("Office document sent to printer; colour/duplex/layout are determined by the installed handler/driver.")
+            self.logger.info("Office document sent to printer")
             return True
         except Exception as exc:
             self.logger.error("Office document print failed: %s", exc)
