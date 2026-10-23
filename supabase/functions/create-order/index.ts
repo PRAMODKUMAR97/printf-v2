@@ -57,7 +57,6 @@ serve(async (req) => {
     const method = payment_method ?? "razorpay";
     if (typeof job_id !== "string" || !UUID_RE.test(job_id)) return response({ error: "Valid job_id is required" }, 400);
     if (!validCustomer(customer_name, customer_mobile)) return response({ error: "A valid customer name and mobile number are required" }, 400);
-    if (typeof customer_email !== "string" || customer_email.trim().length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(customer_email.trim())) return response({ error: "A valid customer email is required for print OTP verification" }, 400);
     if (!["razorpay", "cod"].includes(method)) return response({ error: "Unsupported payment method" }, 400);
     if (typeof amount !== "number" || !Number.isFinite(amount) || amount < 1 || amount > 100000) {
       return response({ error: "Valid payment amount is required" }, 400);
@@ -71,6 +70,19 @@ serve(async (req) => {
     if (!supabaseUrl || !serviceKey) return response({ error: "Server configuration error" }, 500);
     const supabase = createClient(supabaseUrl, serviceKey);
 
+    const { data: job, error: jobError } = await supabase.from("print_jobs")
+      .select("id, status, locked, settings_json, printfs(name)").eq("id", job_id).maybeSingle();
+    if (jobError) {
+      console.error("Print job lookup failed:", jobError.message);
+      return response({ error: "Unable to validate print job" }, 500);
+    }
+    if (!job) return response({ error: "Print job not found" }, 404);
+    const manualFulfilment = (job.printfs as { name?: string } | null)?.name?.trim().toLowerCase() === "canara engineering college";
+    const customerEmail = typeof customer_email === "string" ? customer_email.trim().toLowerCase() : "";
+    if (!manualFulfilment && (customerEmail.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(customerEmail))) {
+      return response({ error: "A valid customer email is required for print OTP verification" }, 400);
+    }
+
     const { data: existing, error: existingError } = await supabase.from("print_orders")
       .select("*").eq("print_job_id", job_id).order("created_at", { ascending: false }).limit(1).maybeSingle();
     if (existingError) {
@@ -80,11 +92,11 @@ serve(async (req) => {
     if (existing && existing.order_status !== "cancelled") {
       const sameCustomer = existing.customer_name === customer_name.trim() &&
         existing.customer_mobile === customer_mobile.trim() &&
-        (!existing.customer_email || existing.customer_email.trim().toLowerCase() === customer_email.trim().toLowerCase());
+        (manualFulfilment || !existing.customer_email || existing.customer_email.trim().toLowerCase() === customerEmail);
       if (!sameCustomer) return response({ error: "An order already exists for this print job with different customer details. Start a new print job or contact support." }, 409);
-      if (!existing.customer_email) {
+      if (!manualFulfilment && !existing.customer_email) {
         const { error: emailUpdateError } = await supabase.from("print_orders")
-          .update({ customer_email: customer_email.trim().toLowerCase() }).eq("id", existing.id);
+          .update({ customer_email: customerEmail }).eq("id", existing.id);
         if (emailUpdateError) return response({ error: "Could not update the existing order contact" }, 500);
       }
       if (existing.payment_status === "paid" || existing.cod_collected === true) {
@@ -108,13 +120,6 @@ serve(async (req) => {
         callback_url || (origin ? origin + "/payment-callback" : undefined)));
     }
 
-    const { data: job, error: jobError } = await supabase.from("print_jobs")
-      .select("id, status, locked, settings_json, printfs(name)").eq("id", job_id).maybeSingle();
-    if (jobError) {
-      console.error("Print job lookup failed:", jobError.message);
-      return response({ error: "Unable to validate print job" }, 500);
-    }
-    if (!job) return response({ error: "Print job not found" }, 404);
     if (job.status !== "pending" || job.locked) return response({ error: "Print job is not eligible for checkout" }, 409);
 
     const expectedAmount = calculateAmount(job.settings_json);
@@ -122,12 +127,11 @@ serve(async (req) => {
       return response({ error: "Payment amount does not match the recorded print settings. Return to the settings screen and try again." }, 400);
     }
 
-    const manualFulfilment = (job.printfs as { name?: string } | null)?.name?.trim().toLowerCase() === "canara engineering college";
     if (method === "cod") {
       const { data: order, error: orderError } = await supabase.from("print_orders").insert({
         customer_name: customer_name.trim(),
         customer_mobile: customer_mobile.trim(),
-        customer_email: customer_email.trim().toLowerCase(),
+        customer_email: customerEmail || null,
         print_job_id: job_id,
         amount: expectedAmount,
         payment_method: "cod",
@@ -178,7 +182,7 @@ serve(async (req) => {
     const { data: printOrder, error: printOrderError } = await supabase.from("print_orders").insert({
       customer_name: customer_name.trim(),
       customer_mobile: customer_mobile.trim(),
-      customer_email: customer_email.trim().toLowerCase(),
+      customer_email: customerEmail || null,
       print_job_id: job_id,
       amount: expectedAmount,
       payment_method: "razorpay",

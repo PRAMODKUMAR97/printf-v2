@@ -45,7 +45,7 @@ export function PaymentScreen({ job, amount, printerName, printerLocation, manua
       setValidationError('Enter a valid mobile number with 10–15 digits.');
       return;
     }
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(customerEmail.trim())) {
+    if (!manualFulfilment && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(customerEmail.trim())) {
       setValidationError('Enter a valid email address for your print OTP.');
       return;
     }
@@ -107,12 +107,12 @@ export function PaymentScreen({ job, amount, printerName, printerLocation, manua
           <h3 id="customer-details-heading" className="font-display text-xl text-foreground">Customer details</h3>
           <p className="mt-1 text-sm text-muted-foreground">Used for your order record and collection.</p>
         </div>
-        <div className="space-y-2">
+        {!manualFulfilment && <div className="space-y-2">
           <Label htmlFor="customer-name">Full name</Label>
           <Input id="customer-name" name="customer_name" autoComplete="name" placeholder="Enter your name" maxLength={100}
             value={customerName} onChange={(event) => { setCustomerName(event.target.value); setValidationError(null); }}
             disabled={isProcessing} required />
-        </div>
+        </div>}
         <div className="space-y-2">
           <Label htmlFor="customer-mobile">Mobile number</Label>
           <Input id="customer-mobile" name="customer_mobile" type="tel" inputMode="tel" autoComplete="tel"
