@@ -1,185 +1,104 @@
 #!/usr/bin/env python3
-"""
-PrintF Agent Test Suite
+"""Unit tests for the PrintF v2 printer agent API contract."""
 
-Tests for validating agent functionality without actual printing.
-"""
-
-import os
-import sys
 import json
+import sys
 import unittest
 from pathlib import Path
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock, patch
 
-# Add parent directory to path
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, str(Path(__file__).parent))
+from agent import PrintFAgent
 
 
 class TestPrintFAgent(unittest.TestCase):
-    """Test cases for PrintF Agent."""
-    
     def setUp(self):
-        """Set up test fixtures."""
+        self.config_path = Path(__file__).parent / "test_config.json"
         self.test_config = {
-            "printf_id": "test-printf-id",
-            "api_key": "test-api-key",
-            "supabase_url": "https://test.supabase.co",
-            "supabase_anon_key": "test-anon-key",
+            "printf_id": "550e8400-e29b-41d4-a716-446655440000",
+            "api_key": "unit-test-station-key",
+            "supabase_url": "https://example.supabase.co",
+            "supabase_anon_key": "sb_publishable_test_key",
             "printer_name": "Test Printer",
             "poll_interval": 1,
             "download_path": "./test_downloads",
-            "log_level": "DEBUG"
+            "log_level": "DEBUG",
         }
-        
-        # Create test config file
-        self.config_path = Path("test_config.json")
-        with open(self.config_path, 'w') as f:
-            json.dump(self.test_config, f)
-    
+        self.config_path.write_text(json.dumps(self.test_config), encoding="utf-8")
+        self.client_patcher = patch("agent.create_client", return_value=Mock())
+        self.client_patcher.start()
+        self.addCleanup(self.client_patcher.stop)
+
     def tearDown(self):
-        """Clean up test fixtures."""
-        if self.config_path.exists():
-            self.config_path.unlink()
-        
-        # Clean up test downloads
+        self.config_path.unlink(missing_ok=True)
         test_downloads = Path("./test_downloads")
         if test_downloads.exists():
             import shutil
             shutil.rmtree(test_downloads)
-    
-    @patch('agent.create_client')
-    def test_agent_initialization(self, mock_create_client):
-        """Test agent initializes correctly."""
-        from agent import PrintFAgent
-        
-        mock_create_client.return_value = Mock()
-        
+
+    def test_agent_initialization(self):
         agent = PrintFAgent("test_config.json")
-        
-        self.assertEqual(agent.printf_id, "test-printf-id")
-        self.assertEqual(agent.api_key, "test-api-key")
+        self.assertEqual(agent.printf_id, self.test_config["printf_id"])
+        self.assertEqual(agent.api_key, self.test_config["api_key"])
         self.assertEqual(agent.printer_name, "Test Printer")
         self.assertEqual(agent.poll_interval, 1)
-    
-    @patch('agent.create_client')
-    def test_authentication_success(self, mock_create_client):
-        """Test successful authentication."""
-        from agent import PrintFAgent
-        
-        mock_supabase = Mock()
-        mock_response = Mock()
-        mock_response.data = {
-            "id": "test-printf-id",
-            "name": "Test PrintF",
-            "api_key": "test-api-key"
+
+    def test_authentication_success_uses_edge_function(self):
+        agent = PrintFAgent("test_config.json")
+        expected = {
+            "success": True,
+            "station": {"id": self.test_config["printf_id"], "name": "Test PrintF", "status": "online"},
         }
-        mock_supabase.table.return_value.select.return_value.eq.return_value.single.return_value.execute.return_value = mock_response
-        mock_create_client.return_value = mock_supabase
-        
+        with patch.object(agent, "_edge_call", return_value=expected) as edge_call:
+            self.assertTrue(agent.authenticate())
+            edge_call.assert_called_once_with("authenticate")
+
+    def test_authentication_rejects_wrong_station(self):
         agent = PrintFAgent("test_config.json")
-        result = agent.authenticate()
-        
-        self.assertTrue(result)
-    
-    @patch('agent.create_client')
-    def test_authentication_failure_wrong_key(self, mock_create_client):
-        """Test authentication fails with wrong API key."""
-        from agent import PrintFAgent
-        
-        mock_supabase = Mock()
-        mock_response = Mock()
-        mock_response.data = {
-            "id": "test-printf-id",
-            "name": "Test PrintF",
-            "api_key": "wrong-api-key"
-        }
-        mock_supabase.table.return_value.select.return_value.eq.return_value.single.return_value.execute.return_value = mock_response
-        mock_create_client.return_value = mock_supabase
-        
+        response = {"success": True, "station": {"id": "different-station", "name": "Other", "status": "online"}}
+        with patch.object(agent, "_edge_call", return_value=response):
+            self.assertFalse(agent.authenticate())
+
+    def test_poll_jobs_returns_jobs_from_edge_function(self):
         agent = PrintFAgent("test_config.json")
-        result = agent.authenticate()
-        
-        self.assertFalse(result)
-    
-    @patch('agent.create_client')
-    def test_poll_jobs(self, mock_create_client):
-        """Test job polling returns jobs."""
-        from agent import PrintFAgent
-        
-        mock_supabase = Mock()
-        mock_response = Mock()
-        mock_response.data = [
-            {
-                "id": "job-1",
-                "printf_id": "test-printf-id",
-                "file_path": "print-files/test.pdf",
-                "file_name": "test.pdf",
-                "status": "ready",
-                "locked": False,
-                "settings_json": {"copies": 1}
-            }
-        ]
-        mock_supabase.table.return_value.select.return_value.eq.return_value.eq.return_value.eq.return_value.order.return_value.execute.return_value = mock_response
-        mock_create_client.return_value = mock_supabase
-        
+        jobs = [{
+            "id": "550e8400-e29b-41d4-a716-446655440001",
+            "printf_id": self.test_config["printf_id"],
+            "file_path": "jobs/550e8400-e29b-41d4-a716-446655440002.pdf",
+            "file_name": "test.pdf",
+            "status": "ready",
+            "locked": False,
+            "settings_json": {"copies": 1, "color": False, "duplex": False, "layout": 1},
+        }]
+        with patch.object(agent, "_edge_call", return_value={"jobs": jobs}) as edge_call:
+            self.assertEqual(agent.poll_jobs(), jobs)
+            edge_call.assert_called_once_with("poll")
+
+    def test_poll_jobs_handles_invalid_response(self):
         agent = PrintFAgent("test_config.json")
-        jobs = agent.poll_jobs()
-        
-        self.assertEqual(len(jobs), 1)
-        self.assertEqual(jobs[0]["id"], "job-1")
-    
-    @patch('agent.create_client')
-    def test_lock_job(self, mock_create_client):
-        """Test job locking."""
-        from agent import PrintFAgent
-        
-        mock_supabase = Mock()
-        mock_response = Mock()
-        mock_response.data = [{"id": "job-1", "locked": True}]
-        mock_supabase.table.return_value.update.return_value.eq.return_value.eq.return_value.execute.return_value = mock_response
-        mock_create_client.return_value = mock_supabase
-        
+        with patch.object(agent, "_edge_call", return_value={"jobs": "not-a-list"}):
+            self.assertEqual(agent.poll_jobs(), [])
+
+    def test_lock_job(self):
         agent = PrintFAgent("test_config.json")
-        result = agent.lock_job("job-1")
-        
-        self.assertTrue(result)
-    
+        with patch.object(agent, "_edge_call", return_value={"locked": True}) as edge_call:
+            self.assertTrue(agent.lock_job("550e8400-e29b-41d4-a716-446655440001"))
+            edge_call.assert_called_once_with("lock", job_id="550e8400-e29b-41d4-a716-446655440001")
+
+    def test_update_job_status(self):
+        agent = PrintFAgent("test_config.json")
+        with patch.object(agent, "_edge_call", return_value={"success": True}) as edge_call:
+            agent.update_job_status("550e8400-e29b-41d4-a716-446655440001", "completed")
+            edge_call.assert_called_once_with(
+                "update_job",
+                job_id="550e8400-e29b-41d4-a716-446655440001",
+                status="completed",
+            )
+
     def test_config_not_found(self):
-        """Test error when config file not found."""
-        from agent import PrintFAgent
-        
         with self.assertRaises(FileNotFoundError):
-            PrintFAgent("nonexistent_config.json")
+            PrintFAgent("missing-config.json")
 
 
-class TestPrinterIntegration(unittest.TestCase):
-    """Integration tests for printer functionality (Windows only)."""
-    
-    @unittest.skipUnless(sys.platform == 'win32', "Windows only test")
-    def test_list_printers(self):
-        """Test listing available printers."""
-        import win32print
-        
-        printers = win32print.EnumPrinters(
-            win32print.PRINTER_ENUM_LOCAL | win32print.PRINTER_ENUM_CONNECTIONS
-        )
-        
-        # Should have at least one printer or be empty
-        self.assertIsInstance(printers, tuple)
-    
-    @unittest.skipUnless(sys.platform == 'win32', "Windows only test")
-    def test_get_default_printer(self):
-        """Test getting default printer."""
-        import win32print
-        
-        try:
-            default = win32print.GetDefaultPrinter()
-            self.assertIsInstance(default, str)
-        except:
-            # No default printer is OK
-            pass
-
-
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main(verbosity=2)
