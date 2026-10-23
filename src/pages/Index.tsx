@@ -216,12 +216,9 @@ const Index = () => {
             <PaymentScreen
               job={job}
               amount={amount}
-              email={email}
-              customerName={customerName}
-              phone={customerMobile}
               printerName={selectedPrinter?.name}
               printerLocation={selectedPrinter?.location}
-              onBack={() => setStep('phone')}
+              onBack={() => setStep('settings')}
               onSuccess={handlePaymentSuccess}
             />
           )}
