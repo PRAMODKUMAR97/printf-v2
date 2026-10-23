@@ -249,7 +249,7 @@ class PrintFAgent:
                 finally:
                     self._current_print_settings = {}
             elif file_extension in [".jpg", ".jpeg", ".png", ".bmp", ".gif"]:
-                return self._print_image(file_path, printer_name, copies)
+                return self._print_image(file_path, printer_name, copies, color)
             elif file_extension in [".doc", ".docx"]:
                 return self._print_office_doc(file_path, printer_name, copies)
             else:
@@ -383,7 +383,7 @@ class PrintFAgent:
                 except Exception as e:
                     self.logger.warning("Could not clean temporary layout PDF: %s", e)
 
-    def _print_image(self, file_path: Path, printer_name: str, copies: int) -> bool:
+    def _print_image(self, file_path: Path, printer_name: str, copies: int, color: bool) -> bool:
         """Print a centered, scaled image through the Windows printer DC."""
         hdc = None
         try:
@@ -392,7 +392,8 @@ class PrintFAgent:
             import win32con
 
             with Image.open(file_path) as opened:
-                img = ImageOps.exif_transpose(opened).convert("RGB")
+                oriented = ImageOps.exif_transpose(opened)
+                img = oriented.convert("RGB") if color else oriented.convert("L").convert("RGB")
 
             hdc = win32ui.CreateDC()
             hdc.CreatePrinterDC(printer_name)
