@@ -29,3 +29,14 @@ jobs:
         run: python -m pip install "supabase>=2.0.0" "httpx>=0.25.0" "Pillow>=10.0.0" "PyMuPDF>=1.23.0"
       - name: Test printer-agent API contract
         run: python -m unittest discover -s printf-agent -p "test_agent.py" -v
+
+  edge-function-typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Type-check all Supabase Edge Functions
+        run: deno check supabase/functions/*/index.ts
