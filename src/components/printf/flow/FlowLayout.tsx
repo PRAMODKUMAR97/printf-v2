@@ -14,7 +14,7 @@ export const stepToPath: Record<UploadStep, string> = {
 const FlowShell = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const { step, selectPrintf, setSelectedPrinter, selectedPrinter, selectedPrintfId, showQRScanner, setShowQRScanner, reset } = usePrintFlow();
+  const { step, job, selectPrintf, setSelectedPrinter, selectedPrinter, selectedPrintfId, showQRScanner, setShowQRScanner, reset } = usePrintFlow();
   useEffect(() => {
     const target = stepToPath[step];
     if (location.pathname !== target) navigate(target, { replace: true });
@@ -24,15 +24,24 @@ const FlowShell = () => {
   const stationOffline = usePrinterAvailability(selectedPrintfId, monitorEnabled);
   const warnedRef = useRef(false);
   useEffect(() => {
-    if (!monitorEnabled) { warnedRef.current = false; return; }
-    if (!stationOffline || warnedRef.current) return;
+    if (!monitorEnabled || !stationOffline) {
+      // Allow a new notification if the same station later goes offline again.
+      warnedRef.current = false;
+      return;
+    }
+    if (warnedRef.current) return;
     warnedRef.current = true;
     const name = selectedPrinter?.name ?? 'The selected station';
-    if (step === 'status') { toast.error(`${name} went offline. Your job stays queued until it reconnects.`); return; }
+    if (job?.id) {
+      // Don't discard a paid/in-progress order if its station temporarily loses power or Wi-Fi.
+      // The job remains in Supabase and the station agent can pick it up when it reconnects.
+      toast.error(`${name} is offline. Your saved print job will remain queued while the station reconnects.`);
+      return;
+    }
     toast.error(`${name} went offline. Please choose another station.`);
     setSelectedPrinter(null);
     reset();
-  }, [stationOffline, monitorEnabled, step, selectedPrinter, setSelectedPrinter, reset]);
+  }, [stationOffline, monitorEnabled, step, job?.id, selectedPrinter, setSelectedPrinter, reset]);
 
   const handleQRScan = async (printfId: string) => {
     setShowQRScanner(false);
