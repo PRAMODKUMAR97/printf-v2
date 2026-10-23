@@ -71,7 +71,20 @@ export default function EmailOtpPage() {
     }
     if (!requestedOnMount.current) {
       requestedOnMount.current = true;
-      void sendOtp();
+      const storedJobId = window.localStorage.getItem('printf_otp_sent_job_id');
+      const storedEmail = window.localStorage.getItem('printf_otp_sent_email');
+      const storedExpiry = Number(window.localStorage.getItem('printf_otp_expires_at') || 0);
+      if (
+        storedJobId === job.id &&
+        storedEmail === email.trim().toLowerCase() &&
+        storedExpiry > Date.now()
+      ) {
+        setExpiresAt(storedExpiry);
+        setResendAt(Date.now() + RESEND_COOLDOWN_SECONDS * 1000);
+        setSent(true);
+      } else {
+        void sendOtp();
+      }
     }
   }, [job?.id, email, navigate, sendOtp]);
 
@@ -98,6 +111,9 @@ export default function EmailOtpPage() {
       window.localStorage.removeItem('printf_email');
       window.localStorage.removeItem('printf_order_id');
       window.localStorage.removeItem('printf_razorpay_order_id');
+      window.localStorage.removeItem('printf_otp_sent_job_id');
+      window.localStorage.removeItem('printf_otp_sent_email');
+      window.localStorage.removeItem('printf_otp_expires_at');
       toast.success('Email verified. Your print job is now queued.');
       setStep('status');
     } catch (error) {
