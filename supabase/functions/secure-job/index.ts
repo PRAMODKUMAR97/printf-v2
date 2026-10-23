@@ -25,12 +25,20 @@ serve(async (req) => {
       const email = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
       if (!UUID_RE.test(jobId) || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254)
         return json({ error: "A valid job_id and email are required" }, 400);
-      const verificationCutoff = new Date(Date.now() - 15 * 60 * 1000).toISOString();
-      const { data: verification, error: verificationError } = await supabase.from("otps")
-        .select("id").eq("job_id", jobId).ilike("email_address", email).eq("used", true)
-        .gte("created_at", verificationCutoff).order("created_at", { ascending: false }).limit(1).maybeSingle();
-      if (verificationError || !verification)
-        return json({ error: "Verify your email OTP before requesting job access" }, 401);
+      // An OTP row can be marked used when a newer OTP is sent, so "used=true"
+      // alone is not proof of verification. Requiring the order's accepted state ensures
+      // secure-otp has successfully verified the customer before access is granted.
+      const { data: order, error: orderError } = await supabase.from("print_orders")
+        .select("id, customer_email, order_status")
+        .eq("print_job_id", jobId).eq("order_status", "accepted")
+        .order("created_at", { ascending: false }).limit(1).maybeSingle();
+      if (orderError) {
+        console.error("secure-job order verification lookup failed:", orderError.message);
+        return json({ error: "Could not validate the print order" }, 500);
+      }
+      if (!order) return json({ error: "Verify your email OTP before requesting job access" }, 401);
+      if (!order.customer_email || order.customer_email.trim().toLowerCase() !== email)
+        return json({ error: "This email does not match the verified print order" }, 403);
       const { data: job, error } = await supabase.from("print_jobs").select("id, status, expiry_time").eq("id", jobId).maybeSingle();
       if (error || !job) return json({ error: "Print job not found" }, 404);
       if (["expired", "failed"].includes(job.status) || new Date(job.expiry_time).getTime() < Date.now())
