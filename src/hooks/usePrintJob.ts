@@ -235,6 +235,7 @@ export function usePrintJob() {
     localStorage.removeItem('printf_print_order_id');
     localStorage.removeItem('printf_razorpay_order_id');
     localStorage.removeItem('printf_payment_job_id');
+    localStorage.removeItem('printf_job_access_token');
     localStorage.removeItem('printf_customer_email');
     localStorage.removeItem('printf_email');
     localStorage.removeItem('printf_order_id');
