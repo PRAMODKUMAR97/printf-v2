@@ -101,7 +101,6 @@ export default function EmailOtpPage() {
       });
       if (!accessError && access?.success && typeof access.access_token === 'string') {
         window.localStorage.setItem('printf_job_access_token', access.access_token);
-        window.localStorage.removeItem('printf_customer_email');
       } else {
         console.warn('Job access token issuance deferred:', accessError ?? access?.error);
         toast.info('Email verified. We are reconnecting to your print job status.');
