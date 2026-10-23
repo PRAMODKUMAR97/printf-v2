@@ -111,8 +111,6 @@ ON CONFLICT (id) DO UPDATE SET
   file_size_limit = 52428800,
   allowed_mime_types = EXCLUDED.allowed_mime_types;
 
-GRANT SELECT, INSERT, UPDATE, DELETE ON storage.objects TO anon, authenticated;
-
 DROP POLICY IF EXISTS "Allow public uploads to print-files" ON storage.objects;
 DROP POLICY IF EXISTS "Allow public read from print-files" ON storage.objects;
 DROP POLICY IF EXISTS "Allow public update in print-files" ON storage.objects;
