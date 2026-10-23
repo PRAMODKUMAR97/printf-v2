@@ -9,6 +9,15 @@ async function sha256(value: string) {
   const hash = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
   return Array.from(new Uint8Array(hash)).map((value) => value.toString(16).padStart(2, "0")).join("");
 }
+async function deriveAccessToken(jobId: string, email: string, secret: string) {
+  const key = await crypto.subtle.importKey(
+    "raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"],
+  );
+  const signature = await crypto.subtle.sign(
+    "HMAC", key, new TextEncoder().encode("printf-job:" + jobId + ":" + email),
+  );
+  return encodeToken(new Uint8Array(signature));
+}
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
   if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
@@ -43,13 +52,15 @@ serve(async (req) => {
       if (error || !job) return json({ error: "Print job not found" }, 404);
       if (["expired", "failed"].includes(job.status) || new Date(job.expiry_time).getTime() < Date.now())
         return json({ error: "Print job is no longer available" }, 410);
-      const raw = new Uint8Array(32);
-      crypto.getRandomValues(raw);
-      const token = encodeToken(raw);
       const jobExpiry = new Date(job.expiry_time).getTime();
       if (!Number.isFinite(jobExpiry) || jobExpiry <= Date.now())
         return json({ error: "Print job is no longer available" }, 410);
-      const expiresAt = new Date(Math.min(Date.now() + 24 * 60 * 60 * 1000, jobExpiry)).toISOString();
+      // Deterministic HMAC makes retries and React StrictMode replays idempotent;
+      // only the server-side secret can derive this customer-scoped bearer token.
+      const token = await deriveAccessToken(jobId, email, serviceKey);
+      // The job itself expires sooner; keep status readable after expiry without
+      // allowing a download after the job expiry time.
+      const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
       const { error: saveError } = await supabase.from("job_tokens").upsert({
         job_id: jobId, token_hash: await sha256(token), expires_at: expiresAt, used: false,
       }, { onConflict: "job_id" });
