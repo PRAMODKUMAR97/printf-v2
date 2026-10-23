@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { PDFDocument } from "https://esm.sh/pdf-lib@1.17.1";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -43,10 +44,20 @@ serve(async (req) => {
       if (station.status !== "online") return response({ error: "PrintF station is not available" }, 400);
     }
 
-    const { data: signedFile, error: storageError } = await supabase.storage.from("print-files").createSignedUrl(file_path, 30);
-    if (storageError || !signedFile?.signedUrl) {
-      console.warn("Uploaded print file could not be confirmed:", storageError?.message ?? "not found");
-      return response({ error: "Uploaded print file was not found. Upload it before creating a job." }, 400);
+    const expectedObjectName = file_path.slice("jobs/".length);
+    const { data: storedObjects, error: objectLookupError } = await supabase.storage.from("print-files")
+      .list("jobs", { search: expectedObjectName, limit: 100, offset: 0 });
+    if (objectLookupError) {
+      console.error("Uploaded file metadata lookup failed:", objectLookupError.message);
+      return response({ error: "Could not validate the uploaded file. Please retry." }, 500);
+    }
+    const storedObject = storedObjects?.find((item) => item.name === expectedObjectName);
+    const actualFileSize = Number(storedObject?.metadata?.size);
+    if (!storedObject || !Number.isInteger(actualFileSize) || actualFileSize <= 0 || actualFileSize > MAX_FILE_SIZE) {
+      return response({ error: "Uploaded file was not found or is larger than 50 MB. Please upload it again." }, 400);
+    }
+    if (file_size !== actualFileSize) {
+      return response({ error: "The uploaded file size changed. Please upload the file again." }, 400);
     }
 
     const input = settings_json && typeof settings_json === "object" && !Array.isArray(settings_json) ? settings_json : {};
@@ -56,12 +67,37 @@ serve(async (req) => {
     };
     const copies = numberValue("copies", 1);
     const layout = numberValue("layout", 1);
-    const pageCount = numberValue("page_count", 1);
+    const requestedPageCount = numberValue("page_count", 1);
     const pageRange = typeof input.page_range === "string" ? input.page_range.trim().slice(0, 200) : "";
     if (!Number.isInteger(copies) || copies < 1 || copies > 50 ||
         ![1, 2, 4].includes(layout) ||
-        !Number.isInteger(pageCount) || pageCount < 1 || pageCount > 10000) {
+        !Number.isInteger(requestedPageCount) || requestedPageCount < 1 || requestedPageCount > 10000) {
       return response({ error: "Invalid print settings or page count" }, 400);
+    }
+
+    // Images are one page; Word documents use the same conservative estimate as the
+    // browser. PDFs are parsed server-side so clients cannot understate billable pages.
+    let pageCount = ["png", "jpg", "jpeg"].includes(fileExtension)
+      ? 1
+      : ["doc", "docx"].includes(fileExtension)
+        ? Math.max(1, Math.ceil(actualFileSize / 50000))
+        : requestedPageCount;
+    if (fileExtension === "pdf") {
+      const { data: pdfBlob, error: pdfDownloadError } = await supabase.storage.from("print-files").download(file_path);
+      if (pdfDownloadError || !pdfBlob) {
+        console.error("Uploaded PDF download failed:", pdfDownloadError?.message ?? "no data");
+        return response({ error: "Could not read the uploaded PDF. Please upload it again." }, 400);
+      }
+      try {
+        const document = await PDFDocument.load(await pdfBlob.arrayBuffer());
+        pageCount = document.getPageCount();
+        if (!Number.isInteger(pageCount) || pageCount < 1 || pageCount > 10000) {
+          return response({ error: "This PDF has an unsupported page count (maximum 10,000 pages)." }, 400);
+        }
+      } catch (pdfError) {
+        console.warn("PDF page-count parsing failed:", pdfError instanceof Error ? pdfError.message : "unknown");
+        return response({ error: "This PDF could not be read. Please re-save it as a standard, unprotected PDF and upload it again." }, 400);
+      }
     }
 
     // Recalculate the billable page count and sheets on the server; never trust totals sent by the browser.
@@ -88,7 +124,7 @@ serve(async (req) => {
     };
 
     const { data: job, error: insertError } = await supabase.from("print_jobs").insert({
-      file_path, file_name: file_name.trim(), file_size, printf_id: printf_id || null,
+      file_path, file_name: file_name.trim(), file_size: actualFileSize, printf_id: printf_id || null,
       settings_json: normalizedSettings, status: "pending", locked: false,
     }).select().single();
     if (insertError || !job) {
@@ -97,7 +133,7 @@ serve(async (req) => {
     }
     await supabase.from("logs").insert({
       type: "info", message: "Print job created", job_id: job.id, printf_id: printf_id || null,
-      metadata: { file_name: file_name.trim(), file_size, page_count: pageCount, selected_pages: selectedPages, sheets },
+      metadata: { file_name: file_name.trim(), file_size: actualFileSize, page_count: pageCount, selected_pages: selectedPages, sheets },
     });
     return response({ success: true, job });
   } catch (error) {
