@@ -46,7 +46,9 @@ The legacy `cashfree-create-order` and `cashfree-webhook` names return a depreca
 
 Copy `printf-agent/config.example.json` to `printf-agent/config.json`. Set the station UUID and its matching station API key from the same `public.printfs` row. Run `printf-agent/install_service.bat` as Administrator to install/start the Windows service. Do not commit the real config file or runtime logs.
 
-24/7 availability depends on continuous power, network, printer, and backend availability. A Windows service improves auto-start/recovery but cannot guarantee uninterrupted operation on its own.
+For PDF settings such as page ranges, 2-up/4-up layout, copies, colour and duplex, install SumatraPDF on the printer PC so the agent can use its silent-print interface. Without it, the fallback uses Windows shell printing and relies on printer-driver defaults for colour/duplex. Word documents also rely on their registered Windows print handler for driver-specific options.
+
+24/7 availability depends on continuous power, network, printer, and backend availability. The service installer configures automatic startup and restart recovery and disables no system settings by itself; disable Windows sleep manually. No software agent can guarantee uninterrupted printing if the PC, printer, power, or network is unavailable.
 
 ## Security notes
 
