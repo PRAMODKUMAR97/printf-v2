@@ -39,7 +39,7 @@ const StatusPage = () => {
             <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
               {paymentMethod === 'cod'
                 ? <>Order{orderNumber ? <> <span className="font-medium text-foreground">#{orderNumber}</span></> : ''} is queued at <span className="text-foreground">{selectedPrinter?.name ?? 'the station'}</span>. Please pay cash when collecting your print.</>
-                : <>Your order is being processed at <span className="text-foreground">{selectedPrinter?.name ?? 'the station'}</span>. Complete email verification if prompted before printing begins.</>}
+                : <>Payment confirmed — the job was released to <span className="text-foreground">{selectedPrinter?.name ?? 'the station'}</span> automatically.</>}
             </p>
           </div>
           <div className="flex items-start gap-4 px-7 py-6">
