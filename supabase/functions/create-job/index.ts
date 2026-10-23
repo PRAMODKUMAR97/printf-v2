@@ -18,14 +18,18 @@ serve(async (req) => {
     const body = await req.json();
     const { file_path, file_name, file_size, printf_id, settings_json } = body ?? {};
     if (typeof file_path !== "string" || typeof file_name !== "string" ||
-        typeof file_size !== "number" || !Number.isFinite(file_size) ||
+        typeof file_size !== "number" || !Number.isInteger(file_size) ||
         file_size <= 0 || file_size > MAX_FILE_SIZE) {
       return response({ error: "Valid file_path, file_name and file_size (up to 50MB) are required" }, 400);
     }
-    if (!file_path.startsWith("jobs/") || file_path.includes("..") || file_path.includes("\\") || file_path.length > 500) {
-      return response({ error: "Invalid file path" }, 400);
+    const allowedExtensions = ["pdf", "doc", "docx", "png", "jpg", "jpeg"];
+    const pathMatch = file_path.match(/^jobs\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.(pdf|doc|docx|png|jpg|jpeg)$/i);
+    const fileExtension = file_name.trim().split(".").pop()?.toLowerCase() ?? "";
+    if (!pathMatch || file_path.length > 500 || !allowedExtensions.includes(fileExtension) ||
+        pathMatch[2].toLowerCase() !== fileExtension || !file_name.trim() ||
+        file_name.length > 255 || /[\u0000-\u001f\u007f]/.test(file_name)) {
+      return response({ error: "Use a valid UUID file path and a supported file name (PDF, DOC, DOCX, PNG, JPG)" }, 400);
     }
-    if (!file_name.trim() || file_name.length > 255) return response({ error: "Invalid file name" }, 400);
     if (printf_id && (typeof printf_id !== "string" || !UUID_RE.test(printf_id))) return response({ error: "Invalid printer station ID" }, 400);
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL");
@@ -53,17 +57,29 @@ serve(async (req) => {
     const copies = numberValue("copies", 1);
     const layout = numberValue("layout", 1);
     const pageCount = numberValue("page_count", 1);
-    const selectedPages = numberValue("selected_pages", pageCount);
-    const sheets = numberValue("sheets", Math.ceil(selectedPages / Math.max(1, layout)));
-    if (!Number.isInteger(copies) || copies < 1 || copies > 100 ||
-        !Number.isInteger(layout) || layout < 1 || layout > 16 ||
-        !Number.isInteger(pageCount) || pageCount < 1 || pageCount > 10000 ||
-        !Number.isInteger(selectedPages) || selectedPages < 1 || selectedPages > pageCount ||
-        !Number.isInteger(sheets) || sheets < 1 || sheets > 10000) {
+    const pageRange = typeof input.page_range === "string" ? input.page_range.trim().slice(0, 200) : "";
+    if (!Number.isInteger(copies) || copies < 1 || copies > 50 ||
+        ![1, 2, 4].includes(layout) ||
+        !Number.isInteger(pageCount) || pageCount < 1 || pageCount > 10000) {
       return response({ error: "Invalid print settings or page count" }, 400);
     }
-    const pageRange = typeof input.page_range === "string" ? input.page_range.slice(0, 200) : "";
-    const pageSize = ["A4", "A3", "Letter", "Legal"].includes(input.page_size) ? input.page_size : "A4";
+
+    // Recalculate the billable page count and sheets on the server; never trust totals sent by the browser.
+    const selectedPageSet = new Set<number>();
+    if (pageRange) {
+      for (const part of pageRange.split(",")) {
+        const match = part.trim().match(/^(\d+)\s*(?:-\s*(\d+))?$/);
+        if (!match) continue;
+        const start = Number(match[1]);
+        const end = Number(match[2] ?? match[1]);
+        for (let page = Math.min(start, end); page <= Math.max(start, end) && page <= pageCount; page++) {
+          if (page >= 1) selectedPageSet.add(page);
+        }
+      }
+    }
+    const selectedPages = selectedPageSet.size || pageCount;
+    const sheets = Math.ceil(selectedPages / layout);
+    const pageSize = "A4";
     const normalizedSettings = {
       copies, color: input.color === true, duplex: input.duplex === true, page_size: pageSize,
       borderless: input.borderless === true, layout, page_range: pageRange,
