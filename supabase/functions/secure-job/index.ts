@@ -38,7 +38,10 @@ serve(async (req) => {
       const raw = new Uint8Array(32);
       crypto.getRandomValues(raw);
       const token = encodeToken(raw);
-      const expiresAt = new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString();
+      const jobExpiry = new Date(job.expiry_time).getTime();
+      if (!Number.isFinite(jobExpiry) || jobExpiry <= Date.now())
+        return json({ error: "Print job is no longer available" }, 410);
+      const expiresAt = new Date(Math.min(Date.now() + 24 * 60 * 60 * 1000, jobExpiry)).toISOString();
       const { error: saveError } = await supabase.from("job_tokens").upsert({
         job_id: jobId, token_hash: await sha256(token), expires_at: expiresAt, used: false,
       }, { onConflict: "job_id" });
@@ -64,15 +67,28 @@ serve(async (req) => {
     if (job.status === "expired" || new Date(job.expiry_time).getTime() < Date.now())
       return json({ error: "Print job has expired" }, 410);
     if (action === "status") {
-      const { file_path: _privatePath, ...safeJob } = job;
+      // Return only what the customer status screen needs; keep station IDs, file paths,
+      // file sizes, and other operational fields private.
+      const safeJob = {
+        id: job.id,
+        file_name: job.file_name,
+        settings_json: job.settings_json,
+        status: job.status,
+        locked: job.locked,
+        expiry_time: job.expiry_time,
+        created_at: job.created_at,
+        updated_at: job.updated_at,
+      };
       return json({ job: safeJob, expires_at: record.expires_at });
     }
     if (!["ready", "printing", "completed"].includes(job.status))
       return json({ error: "Job is not released for download" }, 409);
     const { data: signed, error: signedError } = await supabase.storage.from("print-files").createSignedUrl(job.file_path, 120);
     if (signedError || !signed) return json({ error: "Could not create download URL" }, 500);
-    const { error: consumeError } = await supabase.from("job_tokens").update({ used: true }).eq("id", record.id).eq("used", false);
+    const { data: consumed, error: consumeError } = await supabase.from("job_tokens")
+      .update({ used: true }).eq("id", record.id).eq("used", false).select("id").maybeSingle();
     if (consumeError) return json({ error: "Could not consume secure job token" }, 500);
+    if (!consumed) return json({ error: "This download token has already been used" }, 409);
     return json({ signed_url: signed.signedUrl, file_name: job.file_name, expires_in_seconds: 120 });
   } catch (error) {
     console.error("secure-job failed:", error instanceof Error ? error.message : "unknown");
