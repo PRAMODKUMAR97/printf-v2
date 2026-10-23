@@ -165,7 +165,8 @@ serve(async (req) => {
       method: "POST",
       headers: { "Content-Type": "application/json", "Authorization": authHeader },
       body: JSON.stringify({ amount: Math.round(expectedAmount * 100), currency: "INR",
-        receipt: "job_" + job_id.slice(0, 8), notes: { job_id, payment_method: "razorpay" } }),
+        receipt: "job_" + job_id.slice(0, 8) + "_" + crypto.randomUUID().slice(0, 8),
+        notes: { job_id, payment_method: "razorpay" } }),
     });
     const orderText = await orderResponse.text();
     if (!orderResponse.ok) {
