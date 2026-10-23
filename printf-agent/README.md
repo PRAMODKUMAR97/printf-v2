@@ -6,7 +6,9 @@ A Python-based print agent that runs on Windows machines to poll for print jobs 
 
 - Python 3.9+
 - Windows 10/11
-- A printer configured on the system
+- A printer installed and available to the Windows account running the agent
+- SumatraPDF installed for silent PDF printing with page ranges, N-up layouts, A4 fitting, colour/monochrome, and duplex settings
+- Microsoft Word or a registered Windows print handler for DOC/DOCX files
 
 ## Installation
 
@@ -29,8 +31,8 @@ Edit `config.json`:
 {
   "printf_id": "your-printf-uuid",
   "api_key": "your-printf-api-key",
-  "supabase_url": "https://kwtrrithxztpoxuzhvtu.supabase.co",
-  "supabase_anon_key": "your-anon-key",
+  "supabase_url": "https://unqongjwukgjbasvpyup.supabase.co",
+  "supabase_anon_key": "YOUR_SUPABASE_PUBLISHABLE_KEY",
   "printer_name": "",
   "poll_interval": 5,
   "download_path": "./downloads",

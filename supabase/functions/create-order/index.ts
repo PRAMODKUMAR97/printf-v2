@@ -21,8 +21,8 @@ function calculateAmount(settingsValue: unknown) {
   const layout = Number(settings.layout ?? 1);
   const selectedPages = Number(settings.selected_pages ?? settings.page_count ?? 1);
   const sheets = Number(settings.sheets ?? Math.ceil(selectedPages / Math.max(1, layout)));
-  if (!Number.isInteger(copies) || copies < 1 || copies > 100 ||
-      !Number.isInteger(layout) || layout < 1 || layout > 16 ||
+  if (!Number.isInteger(copies) || copies < 1 || copies > 50 ||
+      ![1, 2, 4].includes(layout) ||
       !Number.isInteger(selectedPages) || selectedPages < 1 || selectedPages > 10000 ||
       !Number.isInteger(sheets) || sheets < 1 || sheets > 10000) return null;
   return Math.round(sheets * copies * (settings.color === true ? 10 : 2) * 100) / 100;
@@ -72,7 +72,9 @@ serve(async (req) => {
     const supabase = createClient(supabaseUrl, serviceKey);
 
     const { data: existing, error: existingError } = await supabase.from("print_orders")
-      .select("*").eq("print_job_id", job_id).order("created_at", { ascending: false }).limit(1).maybeSingle();
+      .select("*").eq("print_job_id", job_id)
+      .not("order_status", "in", '("cancelled","failed")')
+      .order("created_at", { ascending: false }).limit(1).maybeSingle();
     if (existingError) {
       console.error("Existing print order lookup failed:", existingError.message);
       return response({ error: "Unable to check existing order" }, 500);
@@ -141,13 +143,13 @@ serve(async (req) => {
       // Keep the job pending until the emailed OTP is verified. Extend its
       // reservation window so a temporary email/printer delay does not expire it.
       const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
-      const { error: reserveError } = await supabase.from("print_jobs")
+      const { data: reservedJob, error: reserveError } = await supabase.from("print_jobs")
         .update({ expiry_time: expiresAt, locked: false })
-        .eq("id", job_id).eq("status", "pending");
-      if (reserveError) {
+        .eq("id", job_id).eq("status", "pending").select("id").maybeSingle();
+      if (reserveError || !reservedJob) {
         await supabase.from("print_orders").update({ order_status: "cancelled" }).eq("id", order.id);
-        console.error("COD job reservation failed:", reserveError.message);
-        return response({ error: "The print job could not be reserved. Please contact support." }, 500);
+        console.error("COD job reservation failed:", reserveError?.message ?? "job state changed concurrently");
+        return response({ error: "The print job could not be reserved. Please contact support." }, 409);
       }
       await supabase.from("logs").insert({ type: "info", message: "Cash on Delivery order created", job_id,
         metadata: { order_number: order.order_number, amount: expectedAmount } });
@@ -163,7 +165,8 @@ serve(async (req) => {
       method: "POST",
       headers: { "Content-Type": "application/json", "Authorization": authHeader },
       body: JSON.stringify({ amount: Math.round(expectedAmount * 100), currency: "INR",
-        receipt: "job_" + job_id.slice(0, 8), notes: { job_id, payment_method: "razorpay" } }),
+        receipt: "job_" + job_id.slice(0, 8) + "_" + crypto.randomUUID().slice(0, 8),
+        notes: { job_id, payment_method: "razorpay" } }),
     });
     const orderText = await orderResponse.text();
     if (!orderResponse.ok) {

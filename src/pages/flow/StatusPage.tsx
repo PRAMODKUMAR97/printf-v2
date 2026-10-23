@@ -17,11 +17,13 @@ const STATUS_CONFIG = {
 const TIMELINE: Array<keyof typeof STATUS_CONFIG> = ['pending', 'ready', 'printing', 'completed'];
 
 const StatusPage = () => {
-  const { job, selectedPrinter, reset, setIsPrinting } = usePrintFlow();
+  const { job: flowJob, selectedPrinter, reset, setIsPrinting } = usePrintFlow();
+  const storedJobId = typeof window !== 'undefined' ? window.localStorage.getItem('printf_payment_job_id') : null;
   const [paymentMethod] = useState<'razorpay' | 'cod'>(() => typeof window !== 'undefined' && window.localStorage.getItem('printf_last_payment_method') === 'cod' ? 'cod' : 'razorpay');
   const [orderNumber] = useState<string | null>(() => typeof window !== 'undefined' ? window.localStorage.getItem('printf_order_number') : null);
-  const { job: liveJob } = useRealtimeJob(job?.id ?? null);
-  const status = (liveJob?.status ?? job?.status ?? 'pending') as keyof typeof STATUS_CONFIG;
+  const { job: liveJob } = useRealtimeJob(flowJob?.id ?? storedJobId);
+  const job = liveJob ?? flowJob;
+  const status = (liveJob?.status ?? flowJob?.status ?? 'pending') as keyof typeof STATUS_CONFIG;
   useEffect(() => { setIsPrinting(status === 'printing'); }, [status, setIsPrinting]);
 
   if (!job) return <div className="container mx-auto px-6 py-14"><StatusSkeleton /></div>;

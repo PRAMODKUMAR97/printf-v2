@@ -89,12 +89,13 @@ serve(async (req) => {
       console.error("Could not mark payment completed:", markPaymentError.message);
       return response({ error: "Could not record verified payment" }, 500);
     }
-    const { error: markOrderError } = await supabase.from("print_orders").update({
-      payment_status: "paid", razorpay_order_id, razorpay_payment_id,
-    }).eq("print_job_id", job_id).eq("payment_method", "razorpay");
-    if (markOrderError) {
-      console.error("Could not update PrintF order:", markOrderError.message);
-      return response({ error: "Payment verified, but order status needs administrator review" }, 500);
+    const { data: updatedOrder, error: markOrderError } = await supabase.from("print_orders").update({
+      payment_status: "paid", razorpay_payment_id,
+    }).eq("print_job_id", job_id).eq("payment_method", "razorpay")
+      .eq("razorpay_order_id", razorpay_order_id).select("id").maybeSingle();
+    if (markOrderError || !updatedOrder) {
+      console.error("Could not update the matching PrintF order:", markOrderError?.message ?? "order not found");
+      return response({ error: "Payment was verified, but its matching order needs administrator review" }, 500);
     }
 
     let jobStatus = job.status;
