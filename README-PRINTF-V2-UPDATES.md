@@ -18,14 +18,25 @@ The existing PrintF customer UI and UX should be preserved. Checkout additions f
 3. Run `npm install` then `npm run dev`.
 4. Run `npm run build` before deployment.
 
-## Server-side secrets
-Set these in the PrintF v2 Supabase Edge Function secrets page; never commit them:
+## GitHub-managed Supabase deployment
+
+Deployment is intentionally **manual**, not triggered by every push to `main`. Open **Actions** in this repo after adding repository secrets at **Settings → Secrets and variables → Actions**.
+
+For `.github/workflows/deploy-supabase-functions.yml`, add:
+- `SUPABASE_ACCESS_TOKEN`: a Supabase access token with permissions to manage the PrintF v2 project.
 - `RAZORPAY_KEY_ID`
 - `RAZORPAY_KEY_SECRET`
 - `RESEND_API_KEY`
-- `RESEND_FROM_EMAIL` (optional if the configured sender default is valid)
+- `RESEND_FROM_EMAIL`: a sender address verified in Resend.
 
-Supabase supplies `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` to Edge Functions at runtime. Never expose a service-role key in browser code.
+Then run **Deploy PrintF v2 Edge Functions** from Actions. It updates the server-side secrets for project `unqongjwukgjbasvpyup` and deploys the 13 function folders in this repo.
+
+For `.github/workflows/apply-supabase-migration.yml`, add:
+- `SUPABASE_DB_URL`: the PrintF v2 PostgreSQL connection string with SSL enabled. Store it as a GitHub secret, never in a committed file.
+
+Then run **Apply PrintF v2 Database Migration** from Actions. It runs only `supabase/migrations/20261022_printf_v2_orders_storage_policies.sql`. Review this migration before dispatching it.
+
+Supabase injects `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` into Edge Functions at runtime. Never expose the service-role key in browser code or commit any of these secrets.
 
 ## Printer station configuration
 Copy `printf-agent/config.example.json` to `printf-agent/config.json` and fill in the station UUID and matching station API key from the same row in `public.printfs`. Do not commit the real config or logs. 24/7 operation also requires power, network, computer and printer availability; service auto-start alone cannot guarantee uninterrupted service.
