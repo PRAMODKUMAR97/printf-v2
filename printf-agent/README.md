@@ -1,91 +1,21 @@
-# PrintF Agent for Windows
+# PrintF Agent — Windows service
 
-A Python-based print agent that runs on Windows machines to poll for print jobs and execute silent printing.
+## Setup
+1. Copy `config.example.json` to `config.json`.
+2. Set `printf_id` and the matching station `api_key` from the same row in PrintF v2's `public.printfs` table.
+3. Set `printer_name` to the exact queue name displayed in Windows **Settings → Bluetooth & devices → Printers & scanners**. Do not leave the template placeholder.
+4. Run `install_service.bat` as Administrator. It installs dependencies, sets the service to automatic startup, configures restart recovery, and starts the agent.
+5. Test credentials with `py agent.py --test`. Start/stop the Windows service from Services or with `py service.py stop` / `py service.py start`.
 
-## Requirements
+## Supported file handling
+- PDF: with SumatraPDF installed, the agent applies the page range, A4 fit, 1-up/2-up/4-up layout, copies, colour/monochrome and duplex print settings.
+- PNG/JPEG images: converted to PDF and processed through the same print-settings path.
+- DOC/DOCX: if LibreOffice is installed, the agent converts to PDF first so the same settings can be applied. Without LibreOffice it falls back to the registered Windows print handler; page range/layout/colour/duplex may then depend on that app and the printer driver.
+- Borderless output can only be achieved when the installed printer driver and selected paper support borderless printing.
 
-- Python 3.9+
-- Windows 10/11
-- A printer configured on the system
+Install SumatraPDF on the printer PC if you need reliable unattended PDF settings. Install LibreOffice for DOC/DOCX conversion to the same controlled PDF print path.
 
-## Installation
+## 24/7 availability
+Keep the printer, Windows PC, and network powered on. Disable Windows sleep and configure the Windows printer queue so it is available to the service account. Auto-start/recovery improves restart behavior but cannot guarantee printing through power, network, paper, ink or hardware failures.
 
-1. Install Python dependencies:
-```bash
-pip install -r requirements.txt
-```
-
-2. Copy `config.example.json` to `config.json` and update with your PrintF credentials:
-```bash
-copy config.example.json config.json
-```
-
-3. Edit `config.json` with your PrintF ID and API key from the admin dashboard.
-
-## Configuration
-
-Edit `config.json`:
-```json
-{
-  "printf_id": "your-printf-uuid",
-  "api_key": "your-printf-api-key",
-  "supabase_url": "https://kwtrrithxztpoxuzhvtu.supabase.co",
-  "supabase_anon_key": "your-anon-key",
-  "printer_name": "",
-  "poll_interval": 5,
-  "download_path": "./downloads",
-  "log_level": "INFO"
-}
-```
-
-- `printf_id`: UUID of this PrintF machine from the database
-- `api_key`: API key for authentication (from printfs table)
-- `printer_name`: Leave empty to use default printer, or specify a printer name
-- `poll_interval`: Seconds between job polls (default: 5)
-- `download_path`: Where to temporarily store downloaded files
-- `log_level`: DEBUG, INFO, WARNING, ERROR
-
-## Running the Agent
-
-```bash
-python agent.py
-```
-
-Or run as a Windows service (see below).
-
-## Running as Windows Service
-
-1. Install pywin32:
-```bash
-pip install pywin32
-```
-
-2. Install the service:
-```bash
-python service.py install
-```
-
-3. Start the service:
-```bash
-python service.py start
-```
-
-## How It Works
-
-1. Agent authenticates with Supabase using the PrintF's API key
-2. Polls for jobs with status `ready` assigned to this PrintF
-3. Downloads the file from Supabase Storage
-4. Prints using Windows printing subsystem
-5. Updates job status to `completed` or `failed`
-6. Cleans up temporary files
-
-## Troubleshooting
-
-- Check `printf_agent.log` for detailed logs
-- Ensure printer is online and set as default
-- Verify API key matches the one in the database
-- Check network connectivity to Supabase
-
-## License
-
-MIT
+Do not commit `config.json`, service credentials, or runtime logs. These files are excluded by `.gitignore`.
