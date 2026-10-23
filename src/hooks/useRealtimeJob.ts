@@ -49,6 +49,10 @@ export function useRealtimeJob(jobId: string | null) {
         });
         if (cancelled) return;
         if (error || !data?.job) {
+          const statusCode = (error as any)?.context?.status;
+          if (statusCode === 401 || /token.*(invalid|expired)/i.test(String(data?.error || ''))) {
+            window.localStorage.removeItem('printf_job_access_token');
+          }
           setIsSubscribed(false);
           return;
         }
