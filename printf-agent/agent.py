@@ -320,8 +320,8 @@ class PrintFAgent:
         prepared_pdf = None
         try:
             sumatra_paths = [
-                r"C:\\Program Files\\SumatraPDF\\SumatraPDF.exe",
-                r"C:\\Program Files (x86)\\SumatraPDF\\SumatraPDF.exe",
+                r"C:\Program Files\SumatraPDF\SumatraPDF.exe",
+                r"C:\Program Files (x86)\SumatraPDF\SumatraPDF.exe",
                 os.path.expanduser("~\\AppData\\Local\\SumatraPDF\\SumatraPDF.exe"),
             ]
             sumatra_exe = next((path for path in sumatra_paths if os.path.exists(path)), None)
