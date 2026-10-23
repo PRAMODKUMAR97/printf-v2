@@ -1,0 +1,55 @@
+name: Deploy PrintF v2 Edge Functions
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deploy-functions:
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_PROJECT_ID: unqongjwukgjbasvpyup
+      RAZORPAY_KEY_ID: ${{ secrets.RAZORPAY_KEY_ID }}
+      RAZORPAY_KEY_SECRET: ${{ secrets.RAZORPAY_KEY_SECRET }}
+      RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+      RESEND_FROM_EMAIL: ${{ secrets.RESEND_FROM_EMAIL }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Validate deployment secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          for key in SUPABASE_ACCESS_TOKEN RAZORPAY_KEY_ID RAZORPAY_KEY_SECRET RESEND_API_KEY RESEND_FROM_EMAIL; do
+            if [[ -z "${!key:-}" ]]; then
+              echo "::error::Missing GitHub Actions secret: $key"
+              exit 1
+            fi
+          done
+
+      - name: Install Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Configure PrintF v2 function secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          supabase secrets set \
+            "RAZORPAY_KEY_ID=$RAZORPAY_KEY_ID" \
+            "RAZORPAY_KEY_SECRET=$RAZORPAY_KEY_SECRET" \
+            "RESEND_API_KEY=$RESEND_API_KEY" \
+            "RESEND_FROM_EMAIL=$RESEND_FROM_EMAIL" \
+            --project-ref "$SUPABASE_PROJECT_ID"
+
+      - name: Deploy all 13 functions from this repository
+        shell: bash
+        run: |
+          set -euo pipefail
+          supabase functions deploy --project-ref "$SUPABASE_PROJECT_ID" --use-api
