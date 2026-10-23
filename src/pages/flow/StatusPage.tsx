@@ -17,7 +17,7 @@ const STATUS_CONFIG = {
 const TIMELINE: Array<keyof typeof STATUS_CONFIG> = ['pending', 'ready', 'printing', 'completed'];
 
 const StatusPage = () => {
-  const { job, selectedPrinter, reset, setIsPrinting } = usePrintFlow();
+  const { job, selectedPrinter, reset, setIsPrinting, customerName, customerMobile } = usePrintFlow();
   const [paymentMethod] = useState<'razorpay' | 'cod'>(() => typeof window !== 'undefined' && window.localStorage.getItem('printf_last_payment_method') === 'cod' ? 'cod' : 'razorpay');
   const [orderNumber] = useState<string | null>(() => typeof window !== 'undefined' ? window.localStorage.getItem('printf_order_number') : null);
   const { job: liveJob } = useRealtimeJob(job?.id ?? null);
@@ -28,6 +28,12 @@ const StatusPage = () => {
   const config = STATUS_CONFIG[status] ?? STATUS_CONFIG.pending;
   const Icon = config.icon;
   const activeIndex = TIMELINE.indexOf(status);
+  const settings = job.settings_json;
+  const selectedPages = settings.selected_pages || settings.page_count || 1;
+  const sheets = settings.sheets || Math.ceil(selectedPages / Math.max(1, settings.layout || 1));
+  const printMode = settings.color ? 'Colour' : 'Black & white';
+  const sides = settings.duplex ? 'Double-sided' : 'Single-sided';
+  const layout = `${settings.layout || 1} page${(settings.layout || 1) > 1 ? 's' : ''} per sheet`;
 
   return (
     <div className="container mx-auto px-6 py-14">
@@ -35,11 +41,11 @@ const StatusPage = () => {
         <div className="panel-raised overflow-hidden">
           <div className="border-b border-border px-7 py-6">
             <p className="eyebrow">Final step</p>
-            <h1 className="mt-2 font-display text-3xl text-foreground">{paymentMethod === 'cod' ? 'Your order is placed' : 'Your print is on its way'}</h1>
+            <h1 className="mt-2 font-display text-3xl text-foreground">Your order is placed</h1>
             <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
               {paymentMethod === 'cod'
-                ? <>Order{orderNumber ? <> <span className="font-medium text-foreground">#{orderNumber}</span></> : ''} is queued at <span className="text-foreground">{selectedPrinter?.name ?? 'the station'}</span>. Please pay cash when collecting your print.</>
-                : <>Payment confirmed — the job was released to <span className="text-foreground">{selectedPrinter?.name ?? 'the station'}</span> automatically.</>}
+                ? <>Order{orderNumber ? <> <span className="font-medium text-foreground">#{orderNumber}</span></> : ''} is queued at <span className="text-foreground">{selectedPrinter?.name ?? 'the station'}</span>. Please pay cash when collecting your print. It will be delivered within 24 hours.</>
+                : <>Payment confirmed — your order has been sent to <span className="text-foreground">{selectedPrinter?.name ?? 'the station'}</span>. It will be delivered within 24 hours.</>}
             </p>
           </div>
           <div className="flex items-start gap-4 px-7 py-6">
@@ -61,8 +67,13 @@ const StatusPage = () => {
           </ol>
           <div className="border-t border-border px-7 py-5 space-y-3">
             {orderNumber && <div className="flex items-center justify-between text-sm"><span className="text-muted-foreground">Order number</span><span className="pl-4 font-medium text-foreground">#{orderNumber}</span></div>}
+            {customerName && <div className="flex items-center justify-between text-sm"><span className="text-muted-foreground">Customer</span><span className="truncate pl-4 text-foreground">{customerName}</span></div>}
+            {customerMobile && <div className="flex items-center justify-between text-sm"><span className="text-muted-foreground">Mobile</span><span className="pl-4 text-foreground">{customerMobile}</span></div>}
             <div className="flex items-center justify-between text-sm"><span className="text-muted-foreground">Payment</span><span className="pl-4 text-foreground">{paymentMethod === 'cod' ? 'Cash on Delivery · Pending collection' : 'Razorpay · Online'}</span></div>
             <div className="flex items-center justify-between text-sm"><span className="text-muted-foreground">Document</span><span className="truncate pl-4 text-foreground">{job.file_name}</span></div>
+            <div className="flex items-center justify-between text-sm"><span className="text-muted-foreground">Print details</span><span className="pl-4 text-right text-foreground">{selectedPages} page{selectedPages === 1 ? '' : 's'} · {sheets} sheet{sheets === 1 ? '' : 's'}</span></div>
+            <div className="flex items-center justify-between text-sm"><span className="text-muted-foreground">Print settings</span><span className="pl-4 text-right text-foreground">{printMode} · {sides} · {layout}</span></div>
+            <div className="flex items-center justify-between text-sm"><span className="text-muted-foreground">Delivery</span><span className="pl-4 font-medium text-foreground">Within 24 hours</span></div>
           </div>
         </div>
         <Button variant="outline" size="lg" className="w-full" onClick={reset}>Start a new print</Button>

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Clock, Loader2, Mail, RefreshCw, ShieldCheck } from 'lucide-react';
+import { CheckCircle2, Clock, Loader2, Mail, RefreshCw, ShieldCheck } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -20,6 +20,7 @@ function formatTime(totalSeconds: number) {
 export default function EmailOtpPage() {
   const navigate = useNavigate();
   const { job, setStep, reset } = usePrintFlow();
+  const orderNumber = typeof window === 'undefined' ? null : window.localStorage.getItem('printf_order_number');
   const [email, setEmail] = useState(() =>
     typeof window === 'undefined' ? '' : (window.localStorage.getItem('printf_customer_email') || '')
   );
@@ -145,6 +146,18 @@ export default function EmailOtpPage() {
           </div>
         </div>
 
+        <section className="panel-raised flex items-start gap-4 p-5 sm:p-6" aria-label="Order placed confirmation">
+          <span className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-success/10 text-success">
+            <CheckCircle2 className="h-5 w-5" />
+          </span>
+          <div>
+            <p className="font-display text-xl text-foreground">Your order is placed{orderNumber ? ` · #${orderNumber}` : ''}</p>
+            <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
+              Your payment is recorded. Complete the email verification below and your print will be delivered within 24 hours.
+            </p>
+          </div>
+        </section>
+
         <section className="panel-raised space-y-5 p-6 sm:p-7" aria-labelledby="otp-heading">
           <div className="flex items-center gap-3 rounded-xl bg-muted/60 p-4">
             <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-background text-primary">
@@ -199,7 +212,7 @@ export default function EmailOtpPage() {
         </section>
 
         <p className="text-center text-xs leading-relaxed text-muted-foreground">
-          Order{window.localStorage.getItem('printf_order_number') ? ' #' + window.localStorage.getItem('printf_order_number') : ''} · Your print job remains private until verification succeeds.
+          Order{orderNumber ? ' #' + orderNumber : ''} · Your print job remains private until verification succeeds.
         </p>
         <Button variant="ghost" className="w-full" onClick={() => { reset(); navigate('/printers', { replace: true }); }}>Cancel and start over</Button>
       </div>
