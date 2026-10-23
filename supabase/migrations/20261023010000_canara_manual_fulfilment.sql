@@ -9,7 +9,9 @@ SET accepts_orders_24_7 = true,
     manual_fulfilment = true
 WHERE lower(trim(name)) = 'canara engineering college';
 
-CREATE OR REPLACE VIEW public.printfs_public AS
+DROP VIEW IF EXISTS public.printfs_public;
+
+CREATE VIEW public.printfs_public AS
 SELECT
   id, name, location, status, ink_level, paper_level, last_seen,
   accepts_orders_24_7, manual_fulfilment, created_at, updated_at
