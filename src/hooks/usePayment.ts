@@ -70,7 +70,11 @@ export function usePayment() {
           toast.error(data?.error || 'Order saved, but the OTP email could not be sent. Use Resend OTP.');
           return { sent: false, seconds: 300 };
         }
-        return { sent: true, seconds: Number(data.expires_in_seconds) || 300 };
+        const seconds = Number(data.expires_in_seconds) || 300;
+        window.localStorage.setItem('printf_otp_sent_job_id', jobId);
+        window.localStorage.setItem('printf_otp_sent_email', normalizedEmail);
+        window.localStorage.setItem('printf_otp_expires_at', String(Date.now() + seconds * 1000));
+        return { sent: true, seconds };
       } catch (error) {
         console.error('OTP send failed:', error);
         toast.error('Order saved, but the OTP email could not be sent. Use Resend OTP.');
