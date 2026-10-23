@@ -67,4 +67,13 @@ export interface Log {
   created_at: string;
 }
 
-export type UploadStep = 'printf' | 'upload' | 'processing' | 'settings' | 'payment' | 'otp' | 'status';
+export interface OTP {
+  id: string;
+  job_id: string;
+  otp_code: string;
+  created_at: string;
+  expires_at: string;
+  used: boolean;
+}
+
+export type UploadStep = 'printf' | 'upload' | 'processing' | 'settings' | 'phone' | 'payment' | 'otp' | 'status';
