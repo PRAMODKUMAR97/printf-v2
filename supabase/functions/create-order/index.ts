@@ -72,7 +72,9 @@ serve(async (req) => {
     const supabase = createClient(supabaseUrl, serviceKey);
 
     const { data: existing, error: existingError } = await supabase.from("print_orders")
-      .select("*").eq("print_job_id", job_id).order("created_at", { ascending: false }).limit(1).maybeSingle();
+      .select("*").eq("print_job_id", job_id)
+      .not("order_status", "in", '("cancelled","failed")')
+      .order("created_at", { ascending: false }).limit(1).maybeSingle();
     if (existingError) {
       console.error("Existing print order lookup failed:", existingError.message);
       return response({ error: "Unable to check existing order" }, 500);
@@ -141,13 +143,13 @@ serve(async (req) => {
       // Keep the job pending until the emailed OTP is verified. Extend its
       // reservation window so a temporary email/printer delay does not expire it.
       const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
-      const { error: reserveError } = await supabase.from("print_jobs")
+      const { data: reservedJob, error: reserveError } = await supabase.from("print_jobs")
         .update({ expiry_time: expiresAt, locked: false })
-        .eq("id", job_id).eq("status", "pending");
-      if (reserveError) {
+        .eq("id", job_id).eq("status", "pending").select("id").maybeSingle();
+      if (reserveError || !reservedJob) {
         await supabase.from("print_orders").update({ order_status: "cancelled" }).eq("id", order.id);
-        console.error("COD job reservation failed:", reserveError.message);
-        return response({ error: "The print job could not be reserved. Please contact support." }, 500);
+        console.error("COD job reservation failed:", reserveError?.message ?? "job state changed concurrently");
+        return response({ error: "The print job could not be reserved. Please contact support." }, 409);
       }
       await supabase.from("logs").insert({ type: "info", message: "Cash on Delivery order created", job_id,
         metadata: { order_number: order.order_number, amount: expectedAmount } });
