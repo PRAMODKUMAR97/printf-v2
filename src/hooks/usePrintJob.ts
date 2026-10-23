@@ -198,11 +198,17 @@ export function usePrintJob() {
       if (response.error) throw response.error;
       const jobData = response.data?.job;
       if (!jobData) throw new Error('No job data returned');
-      setAmount(computeAmount(settings, pageCount));
+      const serverSettings = jobData.settings_json as PrintSettings;
+      const requestedServerPageCount = Number(serverSettings.page_count);
+      const confirmedPageCount = Number.isInteger(requestedServerPageCount) && requestedServerPageCount > 0
+        ? requestedServerPageCount
+        : pageCount;
+      setPageCount(confirmedPageCount);
+      setAmount(computeAmount(serverSettings, confirmedPageCount));
       const mappedJob: PrintJob = {
         ...jobData,
         printf_id: selectedPrintfId,
-        settings_json: jobData.settings_json as PrintSettings,
+        settings_json: serverSettings,
         status: jobData.status as PrintJob['status'],
       };
       setJob(mappedJob);
