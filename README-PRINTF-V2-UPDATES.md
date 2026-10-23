@@ -34,7 +34,7 @@ Then run **Deploy PrintF v2 Edge Functions** from Actions. It updates the server
 For `.github/workflows/apply-supabase-migration.yml`, add:
 - `SUPABASE_DB_URL`: the PrintF v2 PostgreSQL connection string with SSL enabled. Store it as a GitHub secret, never in a committed file.
 
-Then run **Apply PrintF v2 Database Migration** from Actions. It runs only `supabase/migrations/20261022_printf_v2_orders_storage_policies.sql`. Review this migration before dispatching it.
+Then run **Apply PrintF v2 Database Migration** from Actions. It runs only `supabase/migrations/20261023000000_printf_v2_orders_storage_policies.sql`. Review this migration before dispatching it.
 
 Supabase injects `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` into Edge Functions at runtime. Never expose the service-role key in browser code or commit any of these secrets.
 
