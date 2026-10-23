@@ -1,8 +1,9 @@
 import { useState, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
-import { PrintJob, PrintSettings, UploadStep } from '@/types/printf';
+import { OTP, PrintJob, PrintSettings, UploadStep } from '@/types/printf';
 import { toast } from 'sonner';
 import { ProcessingStage } from '@/components/printf/FileProcessing';
+import type { PaymentCompletion } from '@/hooks/usePayment';
 import { getDocument, GlobalWorkerOptions } from 'pdfjs-dist';
 
 GlobalWorkerOptions.workerSrc = '//cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
@@ -32,8 +33,8 @@ export function countSelectedPages(range: string, total: number): number {
     if (!match) continue;
     const start = parseInt(match[1], 10);
     const end = match[2] ? parseInt(match[2], 10) : start;
-    for (let p = Math.min(start, end); p <= Math.max(start, end); p++) {
-      if (p >= 1 && p <= total) selected.add(p);
+    for (let page = Math.min(start, end); page <= Math.max(start, end); page++) {
+      if (page >= 1 && page <= total) selected.add(page);
     }
   }
   return selected.size || total;
@@ -56,6 +57,11 @@ export function usePrintJob() {
   const [file, setFile] = useState<File | null>(null);
   const [settings, setSettings] = useState<PrintSettings>(DEFAULT_SETTINGS);
   const [job, setJob] = useState<PrintJob | null>(null);
+  const [otp, setOtp] = useState<OTP | null>(null);
+  const [email, setEmail] = useState('');
+  const [customerName, setCustomerName] = useState('');
+  const [customerMobile, setCustomerMobile] = useState('');
+  const [orderConfirmation, setOrderConfirmation] = useState<PaymentCompletion | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [selectedPrintfId, setSelectedPrintfId] = useState<string | null>(null);
@@ -81,7 +87,16 @@ export function usePrintJob() {
     }
   };
 
-  const uploadFile = useCallback(async (selectedFile: File) => {
+  const uploadFile = useCallback(async (selectedFile: File | null) => {
+    if (!selectedFile) {
+      setFile(null);
+      setJob(null);
+      setPageCount(1);
+      setUploadProgress(0);
+      setProcessingStage('verifying');
+      return;
+    }
+
     setFile(selectedFile);
     setStep('processing');
     setIsLoading(true);
@@ -89,39 +104,37 @@ export function usePrintJob() {
     setProcessingStage('verifying');
 
     try {
-      await new Promise(resolve => setTimeout(resolve, 800));
-      setUploadProgress(15);
+      const fileExt = selectedFile.name.split('.').pop()?.toLowerCase() || '';
+      const allowed = new Set(['pdf', 'doc', 'docx', 'png', 'jpg', 'jpeg']);
+      if (!allowed.has(fileExt)) throw new Error('Unsupported file type. Upload PDF, Word, PNG or JPEG.');
+      if (selectedFile.size < 1 || selectedFile.size > 50 * 1024 * 1024) throw new Error('File must be 50 MB or smaller.');
 
+      setUploadProgress(10);
       let pages = 1;
-      if (selectedFile.type === 'application/pdf') {
+      if (selectedFile.type === 'application/pdf' || fileExt === 'pdf') {
         pages = await countPdfPages(selectedFile);
-      } else if (selectedFile.type.includes('image')) {
+      } else if (selectedFile.type.includes('image') || ['png', 'jpg', 'jpeg'].includes(fileExt)) {
         pages = 1;
       } else {
+        // DOC/DOCX pages are determined from file size until document conversion metadata is available.
         pages = Math.max(1, Math.ceil(selectedFile.size / 50000));
       }
       setPageCount(pages);
       setUploadProgress(30);
       setProcessingStage('processing');
-      await new Promise(resolve => setTimeout(resolve, 600));
-      setUploadProgress(50);
 
-      const fileExt = selectedFile.name.split('.').pop()?.toLowerCase() || 'pdf';
-      const fileName = crypto.randomUUID() + '.' + fileExt;
-      const filePath = 'jobs/' + fileName;
+      // The storage policy accepts only jobs/<uuid>.<extension>, matching this path.
+      const filePath = 'jobs/' + crypto.randomUUID() + '.' + fileExt;
       const { error: uploadError } = await supabase.storage.from('print-files').upload(filePath, selectedFile, {
         cacheControl: '3600',
         upsert: false,
+        contentType: selectedFile.type || undefined,
       });
       if (uploadError) throw uploadError;
+
       setUploadProgress(70);
-
-      await new Promise(resolve => setTimeout(resolve, 400));
-      setUploadProgress(90);
       setProcessingStage('completed');
-      await new Promise(resolve => setTimeout(resolve, 500));
       setUploadProgress(100);
-
       setAmount(computeAmount(settings, pages));
       setJob({
         id: '',
@@ -129,20 +142,20 @@ export function usePrintJob() {
         file_path: filePath,
         file_name: selectedFile.name,
         file_size: selectedFile.size,
-        settings_json: settings,
+        settings_json: { ...settings, page_count: pages },
         status: 'pending',
         locked: false,
         expiry_time: '',
         created_at: '',
         updated_at: '',
       });
-
-      await new Promise(resolve => setTimeout(resolve, 800));
       setStep('settings');
       toast.success(pages + ' page' + (pages > 1 ? 's' : '') + ' detected');
     } catch (error) {
       console.error('Error processing file:', error);
-      toast.error('Failed to process file');
+      toast.error(error instanceof Error ? error.message : 'Failed to process file');
+      setFile(null);
+      setJob(null);
       setStep('upload');
     } finally {
       setIsLoading(false);
@@ -151,6 +164,7 @@ export function usePrintJob() {
 
   const removeFile = useCallback(() => {
     setFile(null);
+    setJob(null);
     setPageCount(1);
     setUploadProgress(0);
     setProcessingStage('verifying');
@@ -165,7 +179,7 @@ export function usePrintJob() {
     try {
       const selectedPages = countSelectedPages(settings.page_range, pageCount);
       const sheets = countSheets(selectedPages, settings.layout);
-      const response = await supabase.functions.invoke('create-job', {
+      const { data, error } = await supabase.functions.invoke('create-job', {
         body: {
           file_path: job.file_path,
           file_name: file.name,
@@ -181,10 +195,9 @@ export function usePrintJob() {
           },
         },
       });
-      if (response.error) throw response.error;
-      const jobData = response.data?.job;
-      if (!jobData) throw new Error('No job data returned');
-      setAmount(computeAmount(settings, pageCount));
+      if (error) throw error;
+      const jobData = data?.job;
+      if (!jobData) throw new Error(data?.error || 'No print job data returned');
       const mappedJob: PrintJob = {
         ...jobData,
         printf_id: selectedPrintfId,
@@ -192,42 +205,62 @@ export function usePrintJob() {
         status: jobData.status as PrintJob['status'],
       };
       setJob(mappedJob);
+      setAmount(computeAmount(settings, pageCount));
       setStep('payment');
-      toast.success('Ready for payment!');
+      toast.success('Ready for checkout!');
     } catch (error) {
       console.error('Error creating job:', error);
-      toast.error('Failed to create print job');
+      toast.error(error instanceof Error ? error.message : 'Failed to create print job');
     } finally {
       setIsLoading(false);
     }
   }, [file, job, settings, selectedPrintfId, pageCount]);
 
-  const handlePaymentSuccess = useCallback(async () => {
+  const handlePaymentSuccess = useCallback((details: PaymentCompletion) => {
     if (!job) return;
+    setEmail(details.customer_email);
+    setCustomerName(details.customer_name);
+    setCustomerMobile(details.customer_mobile);
+    setOrderConfirmation(details);
+    setOtp({
+      id: '',
+      job_id: job.id,
+      otp_code: '',
+      created_at: new Date().toISOString(),
+      expires_at: new Date(Date.now() + Math.max(60, details.expires_in_seconds || 300) * 1000).toISOString(),
+      used: false,
+    });
     setStep('otp');
   }, [job]);
 
   const updateSettings = useCallback((newSettings: Partial<PrintSettings>) => {
     setSettings((prev) => {
-      const updated = { ...prev, ...newSettings, page_size: 'A4' as const, fit_to_page: true };
+      const updated: PrintSettings = { ...prev, ...newSettings, page_size: 'A4', fit_to_page: true };
       setAmount(computeAmount(updated, pageCount));
       return updated;
     });
   }, [pageCount]);
 
   const reset = useCallback(() => {
-    localStorage.removeItem('printf_last_payment_method');
-    localStorage.removeItem('printf_order_number');
-    localStorage.removeItem('printf_print_order_id');
-    localStorage.removeItem('printf_razorpay_order_id');
-    localStorage.removeItem('printf_payment_job_id');
-    localStorage.removeItem('printf_customer_email');
-    localStorage.removeItem('printf_email');
-    localStorage.removeItem('printf_order_id');
+    [
+      'printf_last_payment_method',
+      'printf_order_number',
+      'printf_print_order_id',
+      'printf_razorpay_order_id',
+      'printf_payment_job_id',
+      'printf_customer_email',
+      'printf_email',
+      'printf_order_id',
+    ].forEach((key) => localStorage.removeItem(key));
     setStep('printf');
     setFile(null);
     setSettings(DEFAULT_SETTINGS);
     setJob(null);
+    setOtp(null);
+    setEmail('');
+    setCustomerName('');
+    setCustomerMobile('');
+    setOrderConfirmation(null);
     setUploadProgress(0);
     setSelectedPrintfId(null);
     setAmount(0);
@@ -238,8 +271,10 @@ export function usePrintJob() {
   const proceedToPayment = useCallback(() => setStep('payment'), []);
 
   return {
-    step, setStep, file, settings, job, amount, isLoading, uploadProgress,
-    selectedPrintfId, pageCount, processingStage, selectPrintf, uploadFile,
-    removeFile, createJob, proceedToPayment, updateSettings, handlePaymentSuccess, reset,
+    step, setStep, file, settings, job, otp, amount, isLoading, uploadProgress,
+    selectedPrintfId, pageCount, processingStage, email, setEmail, customerName,
+    setCustomerName, customerMobile, setCustomerMobile, orderConfirmation,
+    selectPrintf, uploadFile, removeFile, createJob, proceedToPayment,
+    updateSettings, handlePaymentSuccess, reset,
   };
 }
