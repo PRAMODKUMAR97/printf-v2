@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ArrowLeft, Loader2, Lock, Shield, Banknote, CreditCard } from 'lucide-react';
 import { ProgressHairline } from '@/components/printf/loading/Skeletons';
-import { usePayment } from '@/hooks/usePayment';
+import { usePayment, type PaymentCompletion } from '@/hooks/usePayment';
 import { PaymentTrustBadges } from './payment/PaymentTrustBadges';
 import { PaymentOrderSummary } from './payment/PaymentOrderSummary';
 import { PaymentPriceBreakdown } from './payment/PaymentPriceBreakdown';
@@ -20,7 +20,7 @@ interface PaymentScreenProps {
   printerName?: string;
   printerLocation?: string;
   onBack: () => void;
-  onSuccess: () => void;
+  onSuccess: (details: PaymentCompletion) => void;
 }
 
 export function PaymentScreen({ job, amount, printerName, printerLocation, onBack, onSuccess }: PaymentScreenProps) {
