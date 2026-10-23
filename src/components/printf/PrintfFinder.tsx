@@ -1,11 +1,12 @@
 import { useState, useEffect, forwardRef, useCallback } from 'react';
-import { Search, MapPin, Crosshair, QrCode, Printer, RefreshCw, WifiOff, AlertCircle } from 'lucide-react';
+import { Search, MapPin, Crosshair, QrCode, RefreshCw, WifiOff, AlertCircle } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { supabase } from '@/integrations/supabase/client';
 import { Printf } from '@/types/printf';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
+import { isStationAvailable } from '@/lib/printfAvailability';
 
 interface PrintfFinderProps {
   onPrintfSelect: (printf: Printf) => void;
@@ -36,7 +37,12 @@ export const PrintfFinder = forwardRef<HTMLDivElement, PrintfFinderProps>(functi
         .order('name');
 
       if (fetchError) throw fetchError;
-      setPrintfs((data || []) as PrintfWithDistance[]);
+      // The database status can temporarily remain "online" after the printer PC
+      // loses power or network access. Only an active agent heartbeat makes a
+      // station selectable, so customers never enter a flow that cannot print.
+      setPrintfs(((data || []) as PrintfWithDistance[]).map((printf) => (
+        isStationAvailable(printf) ? printf : { ...printf, status: 'offline' }
+      )));
       
       if (data && data.length === 0) {
         // No printers found but no error
@@ -163,28 +169,32 @@ export const PrintfFinder = forwardRef<HTMLDivElement, PrintfFinderProps>(functi
         </div>
       ) : filteredPrintfs.length > 0 ? (
         <div className="space-y-3">
-          {filteredPrintfs.map((printf) => (
+          {filteredPrintfs.map((printf) => {
+            const available = printf.status === 'online';
+            return (
             <button
               key={printf.id}
-              className="w-full flex items-center gap-4 p-4 bg-card border border-border rounded-xl hover:border-success hover:bg-success/5 transition-all text-left"
+              className={cn(
+                'w-full flex items-center gap-4 p-4 bg-card border border-border rounded-xl transition-all text-left',
+                available ? 'hover:border-success hover:bg-success/5' : 'cursor-not-allowed opacity-70',
+              )}
               onClick={() => onPrintfSelect(printf)}
+              disabled={!available}
             >
-              <div className="w-12 h-12 rounded-xl bg-success/10 flex items-center justify-center flex-shrink-0">
-                <Printer className="w-6 h-6 text-success" />
-              </div>
               <div className="flex-1 min-w-0">
                 <p className="font-semibold text-foreground">{printf.name}</p>
-                <p className="text-sm text-muted-foreground truncate">{printf.location}</p>
+                <p className="text-sm text-muted-foreground truncate">{available ? printf.location : 'Station is reconnecting. Refresh once the printer PC is online.'}</p>
               </div>
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
                 <div className={cn(
                   'w-2 h-2 rounded-full',
-                  printf.status === 'online' ? 'bg-success' : 'bg-muted'
+                  available ? 'bg-success' : 'bg-muted'
                 )} />
-                <span className="capitalize">{printf.status}</span>
+                <span>{available ? 'Online' : 'Reconnecting'}</span>
               </div>
             </button>
-          ))}
+            );
+          })}
         </div>
       ) : searchQuery ? (
         /* No search results */
