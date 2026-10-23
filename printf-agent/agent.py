@@ -243,9 +243,9 @@ class PrintFAgent:
             file_extension = file_path.suffix.lower()
             
             if file_extension == ".pdf":
-                return self._print_pdf(file_path, printer_name, copies, color, duplex)
+                return self._print_pdf(file_path, printer_name, copies, color, duplex, settings)
             elif file_extension in [".jpg", ".jpeg", ".png", ".bmp", ".gif"]:
-                return self._print_image(file_path, printer_name, copies)
+                return self._print_image(file_path, printer_name, copies, color, duplex, settings)
             elif file_extension in [".doc", ".docx"]:
                 return self._print_office_doc(file_path, printer_name, copies)
             else:
@@ -256,123 +256,189 @@ class PrintFAgent:
             self.logger.error(f"Print failed: {e}")
             return False
     
-    def _print_pdf(self, file_path: Path, printer_name: str, copies: int, color: bool, duplex: bool) -> bool:
-        """Print PDF file using SumatraPDF or Adobe Reader."""
+    def _prepare_pdf_for_print(self, file_path: Path, settings: Dict[str, Any]) -> Path:
+        """Apply selected pages and N-up layout to a temporary PDF before printing."""
+        import fitz
+
+        source = fitz.open(str(file_path))
+        if source.page_count < 1:
+            source.close()
+            raise ValueError("PDF contains no pages")
+
+        total_pages = source.page_count
+        page_range = str(settings.get("page_range") or "").strip()
+        selected_indices: List[int] = []
+        if not page_range:
+            selected_indices = list(range(total_pages))
+        else:
+            for part in page_range.split(","):
+                token = part.strip()
+                if not token:
+                    continue
+                match = __import__("re").fullmatch(r"(\d+)(?:\s*-\s*(\d+))?", token)
+                if not match:
+                    source.close()
+                    raise ValueError("Invalid page range: " + token)
+                first = int(match.group(1))
+                last = int(match.group(2) or first)
+                if first < 1 or first > total_pages or last < 1 or last > total_pages:
+                    source.close()
+                    raise ValueError("Page range is outside the document")
+                step = 1 if last >= first else -1
+                for page_number in range(first, last + step, step):
+                    index = page_number - 1
+                    if index not in selected_indices:
+                        selected_indices.append(index)
+
+        if not selected_indices:
+            source.close()
+            raise ValueError("The selected page range contains no pages")
+
+        layout = int(settings.get("layout", 1) or 1)
+        if layout not in (1, 2, 4):
+            layout = 1
+
+        fd, temporary_name = tempfile.mkstemp(prefix="printf-prepared-", suffix=".pdf", dir=str(self.download_path))
+        os.close(fd)
+        prepared_path = Path(temporary_name)
         try:
-            # Try SumatraPDF first (silent printing)
+            output = fitz.open()
+            if layout == 1:
+                for page_index in selected_indices:
+                    output.insert_pdf(source, from_page=page_index, to_page=page_index)
+            else:
+                # A4 dimensions in PDF points. Two-up uses landscape A4; four-up uses portrait A4.
+                if layout == 2:
+                    page_width, page_height, columns, rows = 841.89, 595.28, 2, 1
+                else:
+                    page_width, page_height, columns, rows = 595.28, 841.89, 2, 2
+                cell_width = page_width / columns
+                cell_height = page_height / rows
+                output_page = None
+                for position, source_index in enumerate(selected_indices):
+                    slot = position % layout
+                    if slot == 0:
+                        output_page = output.new_page(width=page_width, height=page_height)
+                    row = slot // columns
+                    column = slot % columns
+                    target = fitz.Rect(
+                        column * cell_width,
+                        row * cell_height,
+                        (column + 1) * cell_width,
+                        (row + 1) * cell_height,
+                    )
+                    output_page.show_pdf_page(target, source, source_index, keep_proportion=True)
+            output.save(str(prepared_path), garbage=4, deflate=True)
+            output.close()
+            return prepared_path
+        except Exception:
+            try:
+                prepared_path.unlink(missing_ok=True)
+            except Exception:
+                pass
+            raise
+        finally:
+            source.close()
+
+    def _print_pdf(self, file_path: Path, printer_name: str, copies: int, color: bool, duplex: bool,
+                   settings: Dict[str, Any]) -> bool:
+        """Print a PDF with requested page range, layout, colour, copies and duplex options."""
+        prepared_path: Optional[Path] = None
+        actual_file = file_path
+        try:
+            layout = int(settings.get("layout", 1) or 1)
+            if str(settings.get("page_range") or "").strip() or layout in (2, 4):
+                prepared_path = self._prepare_pdf_for_print(file_path, settings)
+                actual_file = prepared_path
+
             sumatra_paths = [
-                r"C:\Program Files\SumatraPDF\SumatraPDF.exe",
-                r"C:\Program Files (x86)\SumatraPDF\SumatraPDF.exe",
-                os.path.expanduser("~\\AppData\\Local\\SumatraPDF\\SumatraPDF.exe"),
+                r"C:\\Program Files\\SumatraPDF\\SumatraPDF.exe",
+                r"C:\\Program Files (x86)\\SumatraPDF\\SumatraPDF.exe",
+                os.path.expanduser("~\\\\AppData\\\\Local\\\\SumatraPDF\\\\SumatraPDF.exe"),
             ]
-            
-            sumatra_exe = None
-            for path in sumatra_paths:
-                if os.path.exists(path):
-                    sumatra_exe = path
-                    break
-            
+            sumatra_exe = next((path for path in sumatra_paths if os.path.exists(path)), None)
             if sumatra_exe:
-                # SumatraPDF silent print command
-                cmd = [
+                print_settings = [
+                    f"{max(1, min(100, int(copies)))}x",
+                    "paper=A4",
+                    "fit",
+                    "color" if color else "monochrome",
+                    "duplexlong" if duplex else "simplex",
+                ]
+                if settings.get("borderless"):
+                    self.logger.info("Borderless was requested; the printer driver must support borderless A4.")
+                command = [
                     sumatra_exe,
                     "-print-to", printer_name,
-                    "-print-settings", f"{copies}x",
+                    "-print-settings", ",".join(print_settings),
                     "-silent",
-                    str(file_path)
+                    str(actual_file),
                 ]
-                
-                if duplex:
-                    cmd[4] = f"{copies}x,duplex"
-                
-                self.logger.info(f"Running: {' '.join(cmd)}")
-                result = subprocess.run(cmd, capture_output=True, timeout=120)
-                
+                self.logger.info("Printing PDF with SumatraPDF and requested settings")
+                result = subprocess.run(command, capture_output=True, text=True, timeout=180, check=False)
                 if result.returncode == 0:
                     self.logger.info("PDF printed successfully via SumatraPDF")
                     return True
-                else:
-                    self.logger.warning(f"SumatraPDF exit code: {result.returncode}")
-            
-            # Fallback: Use Windows shell print
-            self.logger.info("Using Windows shell print for PDF")
-            for _ in range(copies):
-                win32api.ShellExecute(
-                    0,
-                    "print",
-                    str(file_path),
-                    f'/d:"{printer_name}"',
-                    ".",
-                    0
+                self.logger.error("SumatraPDF returned %s: %s", result.returncode, (result.stderr or result.stdout or "")[:500])
+                return False
+
+            # Fallback for stations without SumatraPDF. The preprocessed PDF still
+            # honors selected pages and N-up layout; colour and duplex use driver defaults.
+            self.logger.warning("SumatraPDF not found; using Windows shell printing and printer-driver defaults for colour/duplex.")
+            for _ in range(max(1, min(100, int(copies)))):
+                operation = win32api.ShellExecute(
+                    0, "print", str(actual_file), f'/d:"{printer_name}"', ".", 0
                 )
-                time.sleep(2)  # Wait between copies
-            
+                if int(operation) <= 32:
+                    self.logger.error("Windows shell print failed with code %s", operation)
+                    return False
+                time.sleep(2)
             return True
-            
-        except subprocess.TimeoutExpired:
-            self.logger.error("PDF print timed out")
+        except (subprocess.TimeoutExpired, OSError, ValueError, RuntimeError) as exc:
+            self.logger.error("PDF print failed: %s", exc)
             return False
-        except Exception as e:
-            self.logger.error(f"PDF print failed: {e}")
+        except Exception as exc:
+            self.logger.exception("PDF print failed: %s", exc)
             return False
-    
-    def _print_image(self, file_path: Path, printer_name: str, copies: int) -> bool:
-        """Print image file."""
+        finally:
+            if prepared_path:
+                try:
+                    prepared_path.unlink(missing_ok=True)
+                except Exception as exc:
+                    self.logger.warning("Could not remove prepared PDF %s: %s", prepared_path, exc)
+
+    def _print_image(self, file_path: Path, printer_name: str, copies: int, color: bool, duplex: bool,
+                     settings: Dict[str, Any]) -> bool:
+        """Convert a photo to PDF so the same A4/copies/colour/duplex options can be applied."""
+        temporary_pdf: Optional[Path] = None
         try:
             from PIL import Image
-            import win32ui
-            import win32con
-            
-            # Open image
-            img = Image.open(file_path)
-            
-            # Get printer DC
-            hdc = win32ui.CreateDC()
-            hdc.CreatePrinterDC(printer_name)
-            
-            for _ in range(copies):
-                hdc.StartDoc(str(file_path))
-                hdc.StartPage()
-                
-                # Calculate scaling
-                printable_area = hdc.GetDeviceCaps(win32con.HORZRES), hdc.GetDeviceCaps(win32con.VERTRES)
-                printer_size = hdc.GetDeviceCaps(win32con.PHYSICALWIDTH), hdc.GetDeviceCaps(win32con.PHYSICALHEIGHT)
-                
-                # Scale image to fit
-                ratio = min(printable_area[0] / img.width, printable_area[1] / img.height)
-                new_size = (int(img.width * ratio), int(img.height * ratio))
-                
-                img_resized = img.resize(new_size, Image.Resampling.LANCZOS)
-                
-                # Convert to DIB and print
-                dib = Image.new('RGB', new_size)
-                dib.paste(img_resized)
-                dib_bytes = dib.tobytes()
-                
-                hdc.EndPage()
-                hdc.EndDoc()
-            
-            hdc.DeleteDC()
-            self.logger.info("Image printed successfully")
-            return True
-            
-        except Exception as e:
-            self.logger.error(f"Image print failed: {e}")
-            # Fallback to shell print
-            try:
-                for _ in range(copies):
-                    win32api.ShellExecute(0, "print", str(file_path), None, ".", 0)
-                    time.sleep(2)
-                return True
-            except:
-                return False
-    
+
+            fd, temporary_name = tempfile.mkstemp(prefix="printf-image-", suffix=".pdf", dir=str(self.download_path))
+            os.close(fd)
+            temporary_pdf = Path(temporary_name)
+            with Image.open(file_path) as source_image:
+                # PDF embedding is more reliable than the legacy GDI code that created a
+                # bitmap but never drew it into the printer device context.
+                printable = source_image.convert("RGB")
+                printable.save(str(temporary_pdf), "PDF", resolution=150.0)
+                printable.close()
+            return self._print_pdf(temporary_pdf, printer_name, copies, color, duplex, settings)
+        except Exception as exc:
+            self.logger.exception("Image print failed: %s", exc)
+            return False
+        finally:
+            if temporary_pdf:
+                try:
+                    temporary_pdf.unlink(missing_ok=True)
+                except Exception as exc:
+                    self.logger.warning("Could not remove temporary image PDF %s: %s", temporary_pdf, exc)
+
     def _print_office_doc(self, file_path: Path, printer_name: str, copies: int) -> bool:
-        """Print Office document using COM automation or shell."""
+        """Print Office documents via the Windows registered print handler."""
         try:
-            # Use shell print as it's more reliable
-            for _ in range(copies):
-                win32api.ShellExecute(
+            for _ in range(max(1, min(100, int(copies)))):
+                operation = win32api.ShellExecute(
                     0,
                     "print",
                     str(file_path),
@@ -380,34 +446,16 @@ class PrintFAgent:
                     ".",
                     0
                 )
-                time.sleep(3)  # Wait between copies
-            
-            self.logger.info("Office document sent to printer")
+                if int(operation) <= 32:
+                    self.logger.error("Windows Office print handler failed with code %s", operation)
+                    return False
+                time.sleep(3)
+            self.logger.info("Office document sent to printer; colour/duplex/layout are determined by the installed handler/driver.")
             return True
-            
-        except Exception as e:
-            self.logger.error(f"Office document print failed: {e}")
+        except Exception as exc:
+            self.logger.error("Office document print failed: %s", exc)
             return False
-    
-    def _print_raw(self, file_path: Path, printer_name: str, copies: int) -> bool:
-        """Print raw text file."""
-        try:
-            for _ in range(copies):
-                win32api.ShellExecute(
-                    0,
-                    "print",
-                    str(file_path),
-                    f'/d:"{printer_name}"',
-                    ".",
-                    0
-                )
-                time.sleep(1)
-            
-            return True
-        except Exception as e:
-            self.logger.error(f"Raw print failed: {e}")
-            return False
-    
+
     def cleanup_file(self, file_path: Path):
         """Delete temporary file after printing."""
         try:
