@@ -70,6 +70,7 @@ export default function EmailOtpPage() {
   useEffect(() => {
     if (!job?.id || !email) {
       toast.error('Your order session has expired. Please start a new print.');
+      reset();
       navigate('/printers', { replace: true });
       return;
     }
@@ -90,7 +91,7 @@ export default function EmailOtpPage() {
         void sendOtp();
       }
     }
-  }, [job?.id, email, navigate, sendOtp]);
+  }, [job?.id, email, navigate, reset, sendOtp]);
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
