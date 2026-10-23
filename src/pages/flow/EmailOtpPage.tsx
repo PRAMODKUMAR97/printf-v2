@@ -93,8 +93,20 @@ export default function EmailOtpPage() {
       if (error || !data?.verified) {
         throw new Error(data?.error || error?.message || 'Incorrect or expired code.');
       }
+      // Issue the customer a scoped access token so status tracking works under RLS.
+      // If this secondary request is interrupted, the status hook retries while the verified
+      // email remains in local storage; OTP verification itself has already succeeded.
+      const { data: access, error: accessError } = await supabase.functions.invoke('secure-job', {
+        body: { action: 'issue', job_id: job.id, email: email.trim().toLowerCase() },
+      });
+      if (!accessError && access?.success && typeof access.access_token === 'string') {
+        window.localStorage.setItem('printf_job_access_token', access.access_token);
+        window.localStorage.removeItem('printf_customer_email');
+      } else {
+        console.warn('Job access token issuance deferred:', accessError ?? access?.error);
+        toast.info('Email verified. We are reconnecting to your print job status.');
+      }
       window.localStorage.removeItem('printf_payment_job_id');
-      window.localStorage.removeItem('printf_customer_email');
       window.localStorage.removeItem('printf_email');
       window.localStorage.removeItem('printf_order_id');
       window.localStorage.removeItem('printf_razorpay_order_id');
