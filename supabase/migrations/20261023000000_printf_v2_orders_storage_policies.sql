@@ -171,7 +171,7 @@ CREATE TRIGGER sync_print_order_status_from_job AFTER UPDATE OF status ON public
 -- Administrative terminal order changes must stop a job that has not started printing.
 -- If the job is already printing, leave the physical print outcome to the station agent.
 CREATE OR REPLACE FUNCTION public.sync_print_job_status_from_order()
-RETURNS trigger LANGUAGE plpgsql SET search_path = public AS $
+RETURNS trigger LANGUAGE plpgsql SET search_path = public AS $sync_print_job_status_from_order$
 DECLARE next_job_status text;
 BEGIN
   IF NEW.print_job_id IS NULL OR OLD.order_status IS NOT DISTINCT FROM NEW.order_status THEN
@@ -198,7 +198,7 @@ BEGIN
 
   RETURN NEW;
 END;
-$;
+$sync_print_job_status_from_order$;
 
 DROP TRIGGER IF EXISTS sync_print_job_status_from_order ON public.print_orders;
 CREATE TRIGGER sync_print_job_status_from_order
