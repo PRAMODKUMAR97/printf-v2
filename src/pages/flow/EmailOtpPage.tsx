@@ -106,7 +106,7 @@ export default function EmailOtpPage() {
         console.warn('Job access token issuance deferred:', accessError ?? access?.error);
         toast.info('Email verified. We are reconnecting to your print job status.');
       }
-      window.localStorage.removeItem('printf_payment_job_id');
+      // Retain the non-secret job UUID so the status page can recover after a refresh.
       window.localStorage.removeItem('printf_email');
       window.localStorage.removeItem('printf_order_id');
       window.localStorage.removeItem('printf_razorpay_order_id');
