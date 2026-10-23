@@ -155,7 +155,7 @@ export function PaymentScreen({ job, amount, printerName, printerLocation, onBac
         </button>
         {paymentMethod === 'cod' && (
           <p className="rounded-lg bg-muted/60 px-4 py-3 text-xs leading-relaxed text-muted-foreground">
-            Your order will be queued after placement. The station must mark the cash as received before the order is considered paid.
+            Your order will be queued after email verification. The station must mark the cash as received before the order is considered paid.
           </p>
         )}
       </section>
