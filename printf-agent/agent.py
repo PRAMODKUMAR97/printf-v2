@@ -352,9 +352,9 @@ class PrintFAgent:
                 actual_file = prepared_path
 
             sumatra_paths = [
-                r"C:\\Program Files\\SumatraPDF\\SumatraPDF.exe",
-                r"C:\\Program Files (x86)\\SumatraPDF\\SumatraPDF.exe",
-                os.path.expanduser("~\\\\AppData\\\\Local\\\\SumatraPDF\\\\SumatraPDF.exe"),
+                r"C:\Program Files\SumatraPDF\SumatraPDF.exe",
+                r"C:\Program Files (x86)\SumatraPDF\SumatraPDF.exe",
+                os.path.expanduser(r"~\AppData\Local\SumatraPDF\SumatraPDF.exe"),
             ]
             sumatra_exe = next((path for path in sumatra_paths if os.path.exists(path)), None)
             if sumatra_exe:
@@ -557,14 +557,23 @@ class PrintFAgent:
 
 
 def main():
-    """Main entry point."""
+    """Start the station loop or run a one-shot --test authentication check."""
     print("=" * 50)
     print("  PrintF Agent for Windows")
     print("=" * 50)
     print()
-    
+
     try:
         agent = PrintFAgent()
+        if "--test" in sys.argv:
+            if agent.authenticate():
+                agent.update_status("online")
+                print("Authentication: SUCCESS")
+                print("Station ID:", agent.printf_id)
+                print("Station name is visible in the successful Supabase response.")
+                sys.exit(0)
+            print("Authentication: FAILED. Check printf_id, station api_key, project URL and deployed function.")
+            sys.exit(1)
         agent.run()
     except FileNotFoundError as e:
         print(f"Error: {e}")
