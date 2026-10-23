@@ -3,9 +3,23 @@ import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 
 declare global {
-  interface Window { Razorpay: any; }
+  interface Window {
+    Razorpay: any;
+  }
 }
-type CheckoutPaymentMethod = 'razorpay' | 'cod';
+
+export type CheckoutPaymentMethod = 'razorpay' | 'cod';
+
+export interface PaymentCompletion {
+  payment_method: CheckoutPaymentMethod;
+  order_number: number | null;
+  amount: number;
+  customer_email: string;
+  customer_name: string;
+  customer_mobile: string;
+  expires_in_seconds: number;
+  otp_sent: boolean;
+}
 
 interface PaymentOptions {
   jobId: string;
@@ -14,15 +28,19 @@ interface PaymentOptions {
   customerMobile: string;
   customerEmail: string;
   paymentMethod: CheckoutPaymentMethod;
-  onSuccess: () => void;
+  onSuccess: (details: PaymentCompletion) => void;
   onFailure: () => void;
   onCancel?: () => void;
 }
 
 export function usePayment() {
   const [isProcessing, setIsProcessing] = useState(false);
+
   const loadRazorpayScript = useCallback((): Promise<boolean> => new Promise((resolve) => {
-    if (window.Razorpay) { resolve(true); return; }
+    if (window.Razorpay) {
+      resolve(true);
+      return;
+    }
     const script = document.createElement('script');
     script.src = 'https://checkout.razorpay.com/v1/checkout.js';
     script.onload = () => resolve(true);
@@ -31,9 +49,46 @@ export function usePayment() {
   }), []);
 
   const initiatePayment = useCallback(async ({
-    jobId, amount, customerName, customerMobile, customerEmail, paymentMethod, onSuccess, onFailure, onCancel,
+    jobId, amount, customerName, customerMobile, customerEmail, paymentMethod,
+    onSuccess, onFailure, onCancel,
   }: PaymentOptions) => {
     setIsProcessing(true);
+    const normalizedEmail = customerEmail.trim().toLowerCase();
+    const orderCustomer = {
+      customer_email: normalizedEmail,
+      customer_name: customerName.trim(),
+      customer_mobile: customerMobile.trim(),
+    };
+
+    const sendOtp = async (): Promise<{ sent: boolean; seconds: number }> => {
+      try {
+        const { data, error } = await supabase.functions.invoke('secure-otp', {
+          body: { action: 'send', job_id: jobId, email: normalizedEmail },
+        });
+        if (error || !data?.success) {
+          console.error('OTP send failed:', error ?? data?.error);
+          toast.error(data?.error || 'Order saved, but the OTP email could not be sent. Use Resend OTP.');
+          return { sent: false, seconds: 300 };
+        }
+        return { sent: true, seconds: Number(data.expires_in_seconds) || 300 };
+      } catch (error) {
+        console.error('OTP send failed:', error);
+        toast.error('Order saved, but the OTP email could not be sent. Use Resend OTP.');
+        return { sent: false, seconds: 300 };
+      }
+    };
+
+    const complete = (method: CheckoutPaymentMethod, orderNumber: number | null, actualAmount: number, otp: {sent: boolean; seconds: number}) => {
+      onSuccess({
+        payment_method: method,
+        order_number: orderNumber,
+        amount: actualAmount,
+        ...orderCustomer,
+        expires_in_seconds: otp.seconds,
+        otp_sent: otp.sent,
+      });
+    };
+
     try {
       if (paymentMethod === 'razorpay') {
         const loaded = await loadRazorpayScript();
@@ -47,15 +102,15 @@ export function usePayment() {
 
       localStorage.setItem('printf_payment_job_id', jobId);
       localStorage.setItem('printf_last_payment_method', paymentMethod);
-      localStorage.setItem('printf_customer_email', customerEmail.trim().toLowerCase());
+      localStorage.setItem('printf_customer_email', normalizedEmail);
 
       const { data, error } = await supabase.functions.invoke('create-order', {
         body: {
           job_id: jobId,
           amount,
-          customer_name: customerName.trim(),
-          customer_mobile: customerMobile.trim(),
-          customer_email: customerEmail.trim().toLowerCase(),
+          customer_name: orderCustomer.customer_name,
+          customer_mobile: orderCustomer.customer_mobile,
+          customer_email: normalizedEmail,
           payment_method: paymentMethod,
           callback_url: window.location.origin + '/payment-callback',
         },
@@ -69,20 +124,29 @@ export function usePayment() {
         return;
       }
 
+      const orderNumber = data.order_number === undefined || data.order_number === null
+        ? null : Number(data.order_number);
+      const confirmedAmount = Number(data.amount ?? amount);
       if (data.print_order_id) localStorage.setItem('printf_print_order_id', data.print_order_id);
-      if (data.order_number !== undefined) localStorage.setItem('printf_order_number', String(data.order_number));
+      if (orderNumber !== null) localStorage.setItem('printf_order_number', String(orderNumber));
 
       if (data.already_paid) {
-        toast.success('Order #' + (data.order_number ?? '') + ' is already recorded as paid.');
+        const otp = await sendOtp();
+        toast.success('Order #' + (orderNumber ?? '') + ' is already recorded as paid.');
         setIsProcessing(false);
-        onSuccess();
+        complete(paymentMethod, orderNumber, amount, otp);
         return;
       }
 
-      if (paymentMethod === 'cod') {
-        toast.success('Order #' + (data.order_number ?? '') + ' placed. Pay cash when collecting your print.');
+      if (paymentMethod === 'cod' || data.payment_method === 'cod') {
+        const otp = await sendOtp();
+        if (otp.sent) {
+          toast.success('Order #' + (orderNumber ?? '') + ' placed. Verification code sent to email.');
+        } else {
+          toast.error('Order #' + (orderNumber ?? '') + ' was saved. Resend the verification code before printing.');
+        }
         setIsProcessing(false);
-        onSuccess();
+        complete('cod', orderNumber, confirmedAmount, otp);
         return;
       }
 
@@ -95,13 +159,16 @@ export function usePayment() {
 
       localStorage.setItem('printf_razorpay_order_id', data.order_id);
       localStorage.setItem('printf_order_id', data.order_id);
-      const razorpayOptions = {
+
+      const razorpay = new window.Razorpay({
         key: data.key_id,
         amount: data.amount,
-        currency: data.currency,
+        currency: data.currency || 'INR',
         name: 'PrintF',
         description: 'Print Job Payment',
         order_id: data.order_id,
+        prefill: { name: customerName.trim(), email: normalizedEmail, contact: customerMobile.trim() },
+        theme: { color: '#22c55e' },
         handler: async (response: any) => {
           try {
             const { data: verification, error: verifyError } = await supabase.functions.invoke('verify-payment', {
@@ -113,24 +180,26 @@ export function usePayment() {
               },
             });
             if (verifyError || !verification?.success) {
-              toast.error(verification?.error || 'Payment verification failed');
+              console.error('Payment verification error:', verifyError ?? verification);
+              toast.error(verification?.error || 'Payment verification failed. If charged, contact support before retrying.');
               onFailure();
-            } else {
-              toast.success('Payment verified. Check your email for the print verification code.');
-              localStorage.removeItem('printf_order_id');
-              localStorage.removeItem('printf_razorpay_order_id');
-              // Keep the job ID and email until OTP verification releases the job.
-              onSuccess();
+              return;
             }
+
+            const otp = await sendOtp();
+            if (otp.sent) toast.success('Payment verified. Check your email for the print verification code.');
+            else toast.error('Payment is verified. Resend the print verification code before printing.');
+            localStorage.removeItem('printf_order_id');
+            localStorage.removeItem('printf_razorpay_order_id');
+            complete('razorpay', orderNumber, amount, otp);
           } catch (err) {
-            console.error('Verification error:', err);
-            toast.error('Payment verification failed');
+            console.error('Payment verification error:', err);
+            toast.error('Payment verification failed. If charged, contact support.');
             onFailure();
           } finally {
             setIsProcessing(false);
           }
         },
-        theme: { color: '#22c55e' },
         modal: {
           ondismiss: () => {
             setIsProcessing(false);
@@ -141,8 +210,8 @@ export function usePayment() {
           backdropclose: false,
           confirm_close: true,
         },
-      };
-      new window.Razorpay(razorpayOptions).open();
+      });
+      razorpay.open();
     } catch (error) {
       console.error('Checkout error:', error);
       toast.error('Checkout failed. Please try again.');
