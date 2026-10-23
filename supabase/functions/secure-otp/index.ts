@@ -46,7 +46,8 @@ serve(async (req) => {
 
       const { data: order, error: orderLookupError } = await supabase.from("print_orders")
         .select("id, order_number, payment_method, payment_status, order_status, customer_email")
-        .eq("print_job_id", jobId).order("created_at", { ascending: false }).limit(1).maybeSingle();
+        .eq("print_job_id", jobId).not("order_status", "in", '("cancelled","failed")')
+        .order("created_at", { ascending: false }).limit(1).maybeSingle();
       if (orderLookupError) {
         console.error("OTP order lookup failed:", orderLookupError.message);
         return json({ error: "Could not validate the print order" }, 500);
@@ -146,7 +147,8 @@ serve(async (req) => {
       }
       const { data: order, error: orderLookupError } = await supabase.from("print_orders")
         .select("id, order_number, payment_method, payment_status, order_status, customer_email")
-        .eq("print_job_id", jobId).order("created_at", { ascending: false }).limit(1).maybeSingle();
+        .eq("print_job_id", jobId).not("order_status", "in", '("cancelled","failed")')
+        .order("created_at", { ascending: false }).limit(1).maybeSingle();
       if (orderLookupError) {
         console.error("OTP verification order lookup failed:", orderLookupError.message);
         return json({ error: "Could not validate the print order" }, 500);
@@ -195,9 +197,17 @@ serve(async (req) => {
         return json({ error: "Print job cannot be queued in its current state" }, 409);
       }
 
-      if (job.status === "pending") {
-        await supabase.from("print_orders").update({ order_status: "accepted" })
-          .eq("print_job_id", jobId).eq("order_status", "pending");
+      // Mark the matching order accepted even when a prior attempt already queued the
+      // job but failed to update the order row. This makes verification retries recoverable.
+      if (order.order_status !== "accepted") {
+        const { data: acceptedOrder, error: acceptError } = await supabase.from("print_orders")
+          .update({ order_status: "accepted" }).eq("id", order.id)
+          .in("order_status", ["pending", "accepted"]).select("id").maybeSingle();
+        if (acceptError || !acceptedOrder) {
+          await supabase.from("otps").update({ used: false }).eq("id", record.id);
+          console.error("OTP verified but order could not be accepted:", acceptError?.message ?? "order state changed");
+          return json({ error: "Email verified, but the order could not be released. Please try again." }, 409);
+        }
       }
 
       await supabase.from("logs").insert({
