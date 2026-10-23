@@ -35,4 +35,15 @@ jobs:
         run: |
           set -euo pipefail
           psql "$SUPABASE_DB_URL" --no-psqlrc --set ON_ERROR_STOP=1 \
-            --file supabase/migrations/20261022_printf_v2_orders_storage_policies.sql
+            --file supabase/migrations/20261023000000_printf_v2_orders_storage_policies.sql
+
+      - name: Install Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Record migration in Supabase history
+        shell: bash
+        run: |
+          set -euo pipefail
+          supabase migration repair 20261023000000 --status applied --db-url "$SUPABASE_DB_URL"
