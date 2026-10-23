@@ -206,7 +206,7 @@ export function OTPVerification({ otp, job: initialJob, email, paymentMethod = '
             "w-2 h-2 rounded-full",
             isSubscribed ? "bg-success animate-pulse" : "bg-muted-foreground"
           )} />
-          {isSubscribed ? "Live updates active" : "Connecting..."}
+          {isSubscribed ? "Status refresh active" : "Refreshing status..."}
         </div>
 
         {/* Animated Status Card */}
