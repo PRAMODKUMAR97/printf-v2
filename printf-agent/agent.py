@@ -243,7 +243,11 @@ class PrintFAgent:
             file_extension = file_path.suffix.lower()
             
             if file_extension == ".pdf":
-                return self._print_pdf(file_path, printer_name, copies, color, duplex)
+                self._current_print_settings = dict(settings)
+                try:
+                    return self._print_pdf(file_path, printer_name, copies, color, duplex)
+                finally:
+                    self._current_print_settings = {}
             elif file_extension in [".jpg", ".jpeg", ".png", ".bmp", ".gif"]:
                 return self._print_image(file_path, printer_name, copies)
             elif file_extension in [".doc", ".docx"]:
@@ -256,117 +260,191 @@ class PrintFAgent:
             self.logger.error(f"Print failed: {e}")
             return False
     
-    def _print_pdf(self, file_path: Path, printer_name: str, copies: int, color: bool, duplex: bool) -> bool:
-        """Print PDF file using SumatraPDF or Adobe Reader."""
+    def _prepare_nup_pdf(self, file_path: Path, settings: Dict[str, Any]) -> Optional[Path]:
+        """Create an A4 PDF with 2-up or 4-up layout while preserving selected page order."""
         try:
-            # Try SumatraPDF first (silent printing)
+            import fitz  # PyMuPDF
+            source = fitz.open(str(file_path))
+            try:
+                if source.page_count < 1:
+                    return None
+
+                raw_range = str(settings.get("page_range", "") or "").strip()
+                page_indexes = set()
+                if raw_range:
+                    for part in raw_range.split(","):
+                        match = __import__("re").fullmatch(r"\s*(\d+)\s*(?:-\s*(\d+))?\s*", part)
+                        if not match:
+                            continue
+                        start_page = int(match.group(1))
+                        end_page = int(match.group(2) or match.group(1))
+                        for page_number in range(min(start_page, end_page), max(start_page, end_page) + 1):
+                            if 1 <= page_number <= source.page_count:
+                                page_indexes.add(page_number - 1)
+                indexes = sorted(page_indexes) if page_indexes else list(range(source.page_count))
+
+                layout = int(settings.get("layout", 1) or 1)
+                if layout not in (2, 4):
+                    return None
+                columns = 2
+                rows = 1 if layout == 2 else 2
+                page_width, page_height = 595.0, 842.0  # A4, points
+                margin, gap = 18.0, 12.0
+                cell_width = (page_width - 2 * margin - (columns - 1) * gap) / columns
+                cell_height = (page_height - 2 * margin - (rows - 1) * gap) / rows
+                output = fitz.open()
+                try:
+                    for offset in range(0, len(indexes), layout):
+                        target = output.new_page(width=page_width, height=page_height)
+                        for slot, source_index in enumerate(indexes[offset:offset + layout]):
+                            column = slot % columns
+                            row = slot // columns
+                            x0 = margin + column * (cell_width + gap)
+                            y0 = margin + row * (cell_height + gap)
+                            rect = fitz.Rect(x0, y0, x0 + cell_width, y0 + cell_height)
+                            target.show_pdf_page(rect, source, source_index, keep_proportion=True, overlay=True)
+                    fd, temp_name = tempfile.mkstemp(prefix="printf_nup_", suffix=".pdf", dir=str(self.download_path))
+                    os.close(fd)
+                    output.save(temp_name, garbage=3, deflate=True)
+                    return Path(temp_name)
+                finally:
+                    output.close()
+            finally:
+                source.close()
+        except Exception as exc:
+            self.logger.error("Could not prepare the requested multi-page layout: %s", exc)
+            return None
+
+    def _print_pdf(self, file_path: Path, printer_name: str, copies: int, color: bool, duplex: bool) -> bool:
+        """Print PDF with page range, A4 fitting, colour, duplex, copies, and N-up layout."""
+        prepared_pdf = None
+        try:
             sumatra_paths = [
-                r"C:\Program Files\SumatraPDF\SumatraPDF.exe",
-                r"C:\Program Files (x86)\SumatraPDF\SumatraPDF.exe",
+                r"C:\\Program Files\\SumatraPDF\\SumatraPDF.exe",
+                r"C:\\Program Files (x86)\\SumatraPDF\\SumatraPDF.exe",
                 os.path.expanduser("~\\AppData\\Local\\SumatraPDF\\SumatraPDF.exe"),
             ]
-            
-            sumatra_exe = None
-            for path in sumatra_paths:
-                if os.path.exists(path):
-                    sumatra_exe = path
-                    break
-            
+            sumatra_exe = next((path for path in sumatra_paths if os.path.exists(path)), None)
+            settings = self._current_print_settings if hasattr(self, "_current_print_settings") else {}
+            # _print_pdf is also callable independently; prefer the settings passed to the caller.
+            layout = int(settings.get("layout", 1) or 1)
+            page_range = str(settings.get("page_range", "") or "").strip().replace(" ", "")
+
+            print_path = file_path
+            print_settings = [f"{max(1, min(50, int(copies)))}x"]
+            if layout in (2, 4):
+                prepared_pdf = self._prepare_nup_pdf(file_path, settings)
+                if prepared_pdf is None:
+                    return False
+                print_path = prepared_pdf
+            elif page_range:
+                print_settings.append(page_range)
+
+            print_settings.extend([
+                "color" if color else "monochrome",
+                "duplexlong" if duplex else "simplex",
+                "paper=A4",
+            ])
+            if settings.get("fit_to_page", True):
+                print_settings.append("fit")
+
             if sumatra_exe:
-                # SumatraPDF silent print command
                 cmd = [
-                    sumatra_exe,
-                    "-print-to", printer_name,
-                    "-print-settings", f"{copies}x",
-                    "-silent",
-                    str(file_path)
+                    sumatra_exe, "-print-to", printer_name,
+                    "-print-settings", ",".join(print_settings),
+                    "-silent", str(print_path),
                 ]
-                
-                if duplex:
-                    cmd[4] = f"{copies}x,duplex"
-                
-                self.logger.info(f"Running: {' '.join(cmd)}")
-                result = subprocess.run(cmd, capture_output=True, timeout=120)
-                
+                self.logger.info("Printing PDF with SumatraPDF (%s)", ",".join(print_settings))
+                result = subprocess.run(cmd, capture_output=True, timeout=180)
                 if result.returncode == 0:
-                    self.logger.info("PDF printed successfully via SumatraPDF")
+                    self.logger.info("PDF sent to printer successfully")
                     return True
-                else:
-                    self.logger.warning(f"SumatraPDF exit code: {result.returncode}")
-            
-            # Fallback: Use Windows shell print
-            self.logger.info("Using Windows shell print for PDF")
-            for _ in range(copies):
-                win32api.ShellExecute(
-                    0,
-                    "print",
-                    str(file_path),
-                    f'/d:"{printer_name}"',
-                    ".",
-                    0
-                )
-                time.sleep(2)  # Wait between copies
-            
+                self.logger.error("SumatraPDF failed with exit code %s: %s", result.returncode, result.stderr.decode("utf-8", "replace")[:500])
+                return False
+
+            self.logger.warning("SumatraPDF is not installed; Windows shell printing may ignore print settings.")
+            for _ in range(max(1, min(50, int(copies)))):
+                result = win32api.ShellExecute(0, "print", str(print_path), f'/d:"{printer_name}"', ".", 0)
+                if isinstance(result, int) and result <= 32:
+                    self.logger.error("Windows shell could not send the PDF to the printer (code %s)", result)
+                    return False
+                time.sleep(3)
             return True
-            
         except subprocess.TimeoutExpired:
             self.logger.error("PDF print timed out")
             return False
         except Exception as e:
-            self.logger.error(f"PDF print failed: {e}")
+            self.logger.error("PDF print failed: %s", e)
             return False
-    
+        finally:
+            if prepared_pdf is not None:
+                try:
+                    prepared_pdf.unlink(missing_ok=True)
+                except Exception as e:
+                    self.logger.warning("Could not clean temporary layout PDF: %s", e)
+
     def _print_image(self, file_path: Path, printer_name: str, copies: int) -> bool:
-        """Print image file."""
+        """Print a centered, scaled image through the Windows printer DC."""
+        hdc = None
         try:
-            from PIL import Image
+            from PIL import Image, ImageOps, ImageWin
             import win32ui
             import win32con
-            
-            # Open image
-            img = Image.open(file_path)
-            
-            # Get printer DC
+
+            with Image.open(file_path) as opened:
+                img = ImageOps.exif_transpose(opened).convert("RGB")
+
             hdc = win32ui.CreateDC()
             hdc.CreatePrinterDC(printer_name)
-            
-            for _ in range(copies):
+            printable_width = int(hdc.GetDeviceCaps(win32con.HORZRES))
+            printable_height = int(hdc.GetDeviceCaps(win32con.VERTRES))
+            offset_x = int(hdc.GetDeviceCaps(win32con.PHYSICALOFFSETX))
+            offset_y = int(hdc.GetDeviceCaps(win32con.PHYSICALOFFSETY))
+            if printable_width <= 0 or printable_height <= 0:
+                raise RuntimeError("The printer reported an invalid printable area")
+
+            ratio = min(printable_width / img.width, printable_height / img.height)
+            target_size = (max(1, int(img.width * ratio)), max(1, int(img.height * ratio)))
+            resized = img.resize(target_size, Image.Resampling.LANCZOS)
+            dib = ImageWin.Dib(resized)
+            left = offset_x + max(0, (printable_width - target_size[0]) // 2)
+            top = offset_y + max(0, (printable_height - target_size[1]) // 2)
+            rect = (left, top, left + target_size[0], top + target_size[1])
+
+            for _ in range(max(1, min(50, int(copies)))):
                 hdc.StartDoc(str(file_path))
-                hdc.StartPage()
-                
-                # Calculate scaling
-                printable_area = hdc.GetDeviceCaps(win32con.HORZRES), hdc.GetDeviceCaps(win32con.VERTRES)
-                printer_size = hdc.GetDeviceCaps(win32con.PHYSICALWIDTH), hdc.GetDeviceCaps(win32con.PHYSICALHEIGHT)
-                
-                # Scale image to fit
-                ratio = min(printable_area[0] / img.width, printable_area[1] / img.height)
-                new_size = (int(img.width * ratio), int(img.height * ratio))
-                
-                img_resized = img.resize(new_size, Image.Resampling.LANCZOS)
-                
-                # Convert to DIB and print
-                dib = Image.new('RGB', new_size)
-                dib.paste(img_resized)
-                dib_bytes = dib.tobytes()
-                
-                hdc.EndPage()
-                hdc.EndDoc()
-            
-            hdc.DeleteDC()
+                page_started = False
+                try:
+                    hdc.StartPage()
+                    page_started = True
+                    dib.draw(hdc.GetHandleOutput(), rect)
+                    hdc.EndPage()
+                    page_started = False
+                    hdc.EndDoc()
+                except Exception:
+                    if page_started:
+                        try:
+                            hdc.EndPage()
+                        except Exception:
+                            pass
+                    try:
+                        hdc.AbortDoc()
+                    except Exception:
+                        pass
+                    raise
+
             self.logger.info("Image printed successfully")
             return True
-            
         except Exception as e:
-            self.logger.error(f"Image print failed: {e}")
-            # Fallback to shell print
-            try:
-                for _ in range(copies):
-                    win32api.ShellExecute(0, "print", str(file_path), None, ".", 0)
-                    time.sleep(2)
-                return True
-            except:
-                return False
-    
+            self.logger.error("Image print failed: %s", e)
+            return False
+        finally:
+            if hdc is not None:
+                try:
+                    hdc.DeleteDC()
+                except Exception:
+                    pass
+
     def _print_office_doc(self, file_path: Path, printer_name: str, copies: int) -> bool:
         """Print Office document using COM automation or shell."""
         try:
