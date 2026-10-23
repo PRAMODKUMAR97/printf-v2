@@ -136,9 +136,11 @@ export function usePayment() {
 
       if (data.already_paid) {
         const otp = await sendOtp();
+        const savedMethod: CheckoutPaymentMethod = data.payment_method === 'cod' ? 'cod' : 'razorpay';
+        const savedAmount = Number(data.amount ?? amount);
         toast.success('Order #' + (orderNumber ?? '') + ' is already recorded as paid.');
         setIsProcessing(false);
-        complete(paymentMethod, orderNumber, amount, otp);
+        complete(savedMethod, orderNumber, savedAmount, otp);
         return;
       }
 
