@@ -251,6 +251,9 @@ export function usePrintJob() {
       'printf_customer_email',
       'printf_email',
       'printf_order_id',
+      'printf_otp_sent_job_id',
+      'printf_otp_sent_email',
+      'printf_otp_expires_at',
     ].forEach((key) => localStorage.removeItem(key));
     setStep('printf');
     setFile(null);
