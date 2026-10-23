@@ -19,7 +19,7 @@ function formatTime(totalSeconds: number) {
 
 export default function EmailOtpPage() {
   const navigate = useNavigate();
-  const { job, setStep } = usePrintFlow();
+  const { job, setStep, reset } = usePrintFlow();
   const [email, setEmail] = useState(() =>
     typeof window === 'undefined' ? '' : (window.localStorage.getItem('printf_customer_email') || '')
   );
@@ -48,7 +48,11 @@ export default function EmailOtpPage() {
         throw new Error(data?.error || error?.message || 'Could not send the verification code.');
       }
       const seconds = Number(data.expires_in_seconds) || OTP_TTL_SECONDS;
-      setExpiresAt(Date.now() + seconds * 1000);
+      const expires = Date.now() + seconds * 1000;
+      window.localStorage.setItem('printf_otp_sent_job_id', job.id);
+      window.localStorage.setItem('printf_otp_sent_email', email.trim().toLowerCase());
+      window.localStorage.setItem('printf_otp_expires_at', String(expires));
+      setExpiresAt(expires);
       setResendAt(Date.now() + RESEND_COOLDOWN_SECONDS * 1000);
       setSent(true);
       setCode('');
@@ -196,7 +200,7 @@ export default function EmailOtpPage() {
         <p className="text-center text-xs leading-relaxed text-muted-foreground">
           Order{window.localStorage.getItem('printf_order_number') ? ' #' + window.localStorage.getItem('printf_order_number') : ''} · Your print job remains private until verification succeeds.
         </p>
-        <Button variant="ghost" className="w-full" onClick={() => navigate('/printers')}>Cancel and start over</Button>
+        <Button variant="ghost" className="w-full" onClick={() => { reset(); navigate('/printers', { replace: true }); }}>Cancel and start over</Button>
       </div>
     </div>
   );
