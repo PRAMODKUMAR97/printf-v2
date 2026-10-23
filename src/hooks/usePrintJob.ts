@@ -239,7 +239,7 @@ export function usePrintJob() {
       expires_at: new Date(Date.now() + Math.max(60, details.expires_in_seconds || 300) * 1000).toISOString(),
       used: false,
     });
-    setStep('otp');
+    setStep(details.manual_fulfilment ? 'status' : 'otp');
   }, [job]);
 
   const updateSettings = useCallback((newSettings: Partial<PrintSettings>) => {

@@ -25,14 +25,14 @@ export default function PaymentCallback() {
         localStorage.removeItem('printf_order_id');
         localStorage.removeItem('printf_razorpay_order_id');
         setStatus('success');
-        toast.success('Payment successful! Your job was sent to the printer.');
+        toast.success('Payment successful! Complete email verification to place your order.');
       } catch (err) { console.error('Error:', err); setStatus('failed'); toast.error('Something went wrong'); }
     };
     void verifyPayment();
   }, [searchParams]);
   return <div className="min-h-screen bg-background flex items-center justify-center p-4"><div className="w-full max-w-md space-y-6 text-center">
     {status === 'loading' && <div className="w-full animate-rise text-left" aria-busy="true" aria-live="polite"><span className="sr-only">Verifying payment</span><div className="overflow-hidden rounded-2xl border border-border bg-card shadow-elev-1"><ProgressHairline /><div className="space-y-6 px-7 py-8"><div className="space-y-3"><p className="text-[0.6875rem] uppercase tracking-[0.14em] text-muted-foreground">Verifying payment</p><h1 className="font-display text-3xl text-foreground">Confirming with the bank…</h1></div><div className="space-y-3"><Shimmer className="skeleton-text h-2.5 w-3/4" /><Shimmer className="skeleton-text h-2.5 w-1/2" /></div><div className="skeleton h-20 w-full rounded-xl" /></div></div></div>}
-    {status === 'success' && <div className="animate-rise space-y-6"><div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-success/15"><CheckCircle2 className="h-11 w-11 text-success" /></div><div className="space-y-2"><h1 className="font-display text-3xl text-foreground">Payment successful</h1><p className="text-sm text-muted-foreground">Your job has been released to the station and will print shortly.</p></div><Button variant="secondary" size="lg" className="w-full" onClick={() => navigate('/printers')}>Back to stations</Button></div>}
+    {status === 'success' && <div className="animate-rise space-y-6"><div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-success/15"><CheckCircle2 className="h-11 w-11 text-success" /></div><div className="space-y-2"><h1 className="font-display text-3xl text-foreground">Payment successful</h1><p className="text-sm text-muted-foreground">Your order is being confirmed for college delivery within 24 hours.</p></div><Button variant="secondary" size="lg" className="w-full" onClick={() => navigate('/printers')}>Back to stations</Button></div>}
     {status === 'failed' && <div className="animate-rise space-y-6"><div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-destructive/15"><XCircle className="h-11 w-11 text-destructive" /></div><div className="space-y-2"><h1 className="font-display text-3xl text-foreground">Payment failed</h1><p className="text-sm text-muted-foreground">Nothing was charged twice. You can start the print again.</p></div><Button variant="outline" size="lg" className="w-full" onClick={() => navigate('/printers')}>Start over</Button></div>}
   </div></div>;
 }

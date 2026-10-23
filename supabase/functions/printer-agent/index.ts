@@ -39,6 +39,8 @@ serve(async (req) => {
         return json({ success: true });
       }
       case "poll": {
+        // Documents for manual-fulfilment stations are printed by an operator.
+        if (station.name.trim().toLowerCase() === "canara engineering college") return json({ jobs: [] });
         const now = new Date().toISOString();
         await supabase.from("print_jobs").update({ status: "expired", locked: false })
           .eq("status", "ready").eq("locked", false).lt("expiry_time", now);

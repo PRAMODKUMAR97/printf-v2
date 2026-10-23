@@ -4,6 +4,8 @@ export interface Printf {
   location: string;
   status: 'online' | 'offline' | 'maintenance';
   last_seen: string | null;
+  accepts_orders_24_7?: boolean;
+  manual_fulfilment?: boolean;
   api_key?: string;
   paper_level: number;
   ink_level: number;

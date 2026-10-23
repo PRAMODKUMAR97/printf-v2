@@ -34,9 +34,13 @@ serve(async (req) => {
     const supabase = createClient(supabaseUrl, serviceKey);
 
     if (printf_id) {
-      const { data: station, error } = await supabase.from("printfs").select("id, status").eq("id", printf_id).maybeSingle();
+      const { data: station, error } = await supabase.from("printfs")
+        .select("id, name, status").eq("id", printf_id).maybeSingle();
       if (error || !station) return response({ error: "PrintF station not found" }, 404);
-      if (station.status !== "online") return response({ error: "PrintF station is not available" }, 400);
+      const acceptsManualOrders = station.name.trim().toLowerCase() === "canara engineering college";
+      if (station.status !== "online" && !acceptsManualOrders) {
+        return response({ error: "PrintF station is not available" }, 400);
+      }
     }
 
     const { data: signedFile, error: storageError } = await supabase.storage.from("print-files").createSignedUrl(file_path, 30);

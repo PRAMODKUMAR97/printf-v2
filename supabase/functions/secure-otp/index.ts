@@ -165,24 +165,25 @@ serve(async (req) => {
       }
 
       const { data: job, error: jobLookupError } = await supabase.from("print_jobs")
-        .select("id, status, expiry_time").eq("id", jobId).maybeSingle();
+        .select("id, status, expiry_time, printf_id, printfs(name)").eq("id", jobId).maybeSingle();
       if (jobLookupError || !job) return json({ error: "Print job not found" }, 404);
       if (job.status === "expired" || job.status === "failed" || new Date(job.expiry_time).getTime() < Date.now()) {
         return json({ error: "Print job has expired" }, 410);
       }
 
-      // Consume the valid OTP, then make the job visible to the always-on print agent.
+      // Consume the valid OTP. Manual stations keep the document in the operator queue.
       const { data: consumed, error: markUsedError } = await supabase.from("otps")
         .update({ used: true }).eq("id", record.id).eq("used", false).select("id").maybeSingle();
       if (markUsedError || !consumed) {
         return json({ error: "This OTP has already been used. Request a new code if needed." }, 409);
       }
 
+      const manualFulfilment = (job.printfs as { name?: string } | null)?.name?.trim().toLowerCase() === "canara engineering college";
       let queuedStatus = job.status;
       if (job.status === "pending") {
         const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
         const { data: queued, error: queueError } = await supabase.from("print_jobs")
-          .update({ status: "ready", expiry_time: expiresAt, locked: false })
+          .update({ status: manualFulfilment ? "pending" : "ready", expiry_time: expiresAt, locked: false })
           .eq("id", jobId).eq("status", "pending").select("id, status, expiry_time").maybeSingle();
         if (queueError || !queued) {
           await supabase.from("otps").update({ used: false }).eq("id", record.id);
@@ -202,9 +203,9 @@ serve(async (req) => {
 
       await supabase.from("logs").insert({
         type: "success",
-        message: "Email OTP verified; print job released to queue",
+        message: manualFulfilment ? "Email OTP verified; order added to manual fulfilment queue" : "Email OTP verified; print job released to queue",
         job_id: jobId,
-        metadata: { order_number: order.order_number ?? null, job_status: queuedStatus },
+        metadata: { order_number: order.order_number ?? null, job_status: queuedStatus, manual_fulfilment: manualFulfilment },
       });
       return json({ success: true, verified: true, job_status: queuedStatus });
     }

@@ -80,7 +80,7 @@ serve(async (req) => {
     }
 
     const { data: job, error: jobLookupError } = await supabase.from("print_jobs")
-      .select("id, status, expiry_time, locked").eq("id", job_id).maybeSingle();
+      .select("id, status, expiry_time, locked, printfs(name)").eq("id", job_id).maybeSingle();
     if (jobLookupError || !job) return response({ error: "Print job not found" }, 404);
 
     const { error: markPaymentError } = await supabase.from("payments")
@@ -89,8 +89,10 @@ serve(async (req) => {
       console.error("Could not mark payment completed:", markPaymentError.message);
       return response({ error: "Could not record verified payment" }, 500);
     }
+    const manualFulfilment = (job.printfs as { name?: string } | null)?.name?.trim().toLowerCase() === "canara engineering college";
     const { error: markOrderError } = await supabase.from("print_orders").update({
       payment_status: "paid", razorpay_order_id, razorpay_payment_id,
+      ...(manualFulfilment ? { order_status: "accepted" } : {}),
     }).eq("print_job_id", job_id).eq("payment_method", "razorpay");
     if (markOrderError) {
       console.error("Could not update PrintF order:", markOrderError.message);

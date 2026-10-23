@@ -7,7 +7,7 @@ import { UploadStep, Printf } from '@/types/printf';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { usePrinterAvailability } from '@/hooks/usePrinterAvailability';
-import { isStationAvailable } from '@/lib/printfAvailability';
+import { isStationOrderable } from '@/lib/printfAvailability';
 
 export const stepToPath: Record<UploadStep, string> = {
   printf: '/printers', upload: '/upload', processing: '/processing', settings: '/settings', phone: '/payment', payment: '/payment', otp: '/verify-otp', status: '/status',
@@ -25,7 +25,7 @@ const FlowShell = () => {
   const stationOffline = usePrinterAvailability(selectedPrintfId, monitorEnabled);
   const warnedRef = useRef(false);
   useEffect(() => {
-    if (!monitorEnabled || !stationOffline) {
+    if (!monitorEnabled || !stationOffline || (selectedPrinter && isStationOrderable(selectedPrinter))) {
       // Allow a new notification if the same station later goes offline again.
       warnedRef.current = false;
       return;
@@ -48,7 +48,7 @@ const FlowShell = () => {
     setShowQRScanner(false);
     const { data: printf, error } = await supabase.from('printfs_public').select('*').eq('id', printfId).single();
     if (error || !printf) { toast.error('PrintF not found. Please try again.'); return; }
-    if (!isStationAvailable(printf)) { toast.error(`${printf.name} is reconnecting. Please try again once the printer PC is online.`); return; }
+    if (!isStationOrderable(printf)) { toast.error(`${printf.name} is currently unavailable. Please try again later.`); return; }
     setSelectedPrinter(printf as Printf);
     selectPrintf(printfId);
     toast.success(`Connected to ${printf.name}`);

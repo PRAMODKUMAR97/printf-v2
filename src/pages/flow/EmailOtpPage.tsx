@@ -120,7 +120,7 @@ export default function EmailOtpPage() {
       window.localStorage.removeItem('printf_otp_sent_job_id');
       window.localStorage.removeItem('printf_otp_sent_email');
       window.localStorage.removeItem('printf_otp_expires_at');
-      toast.success('Email verified. Your print job is now queued.');
+      toast.success('Email verified. Your order is in the delivery queue.');
       setStep('status');
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Verification failed. Please try again.';
@@ -141,7 +141,7 @@ export default function EmailOtpPage() {
             <p className="eyebrow">Order verification</p>
             <h1 className="mt-2 font-display text-3xl text-foreground">Check your email</h1>
             <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-              We use a one-time code to confirm your order before releasing the document to the printer.
+              We use a one-time code to confirm your order before adding the document to our delivery queue.
             </p>
           </div>
         </div>
@@ -203,7 +203,7 @@ export default function EmailOtpPage() {
           </div>
 
           <Button className="h-12 w-full" onClick={() => void verifyOtp()} disabled={code.length !== OTP_LENGTH || isVerifying || !sent || secondsLeft === 0}>
-            {isVerifying ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Verifying code…</> : 'Verify and queue print'}
+            {isVerifying ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Verifying code…</> : 'Verify and place order'}
           </Button>
           <Button variant="outline" className="w-full" onClick={() => void sendOtp()} disabled={isSending || isVerifying || resendSecondsLeft > 0}>
             {isSending ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Sending code…</> :

@@ -7,10 +7,10 @@ import { usePrintFlow } from '@/components/printf/flow/PrintFlowContext';
 import { useRealtimeJob } from '@/hooks/useRealtimeJob';
 
 const STATUS_CONFIG = {
-  pending: { icon: Clock, title: 'Preparing your job', description: 'Confirming your payment with the station.', tone: 'text-muted-foreground', dot: 'bg-muted-foreground' },
-  ready: { icon: FileText, title: 'Queued for printing', description: 'The station has your job and will start shortly.', tone: 'text-accent', dot: 'bg-accent' },
-  printing: { icon: Printer, title: 'Printing now', description: 'Your document is moving through the tray.', tone: 'text-accent', dot: 'bg-accent' },
-  completed: { icon: CheckCircle2, title: 'Print complete', description: 'Collect your document from the tray.', tone: 'text-success', dot: 'bg-success' },
+  pending: { icon: Clock, title: 'Order received', description: 'Your document is safely in the college delivery queue.', tone: 'text-muted-foreground', dot: 'bg-muted-foreground' },
+  ready: { icon: FileText, title: 'Queued for fulfilment', description: 'Your order is ready for the PrintF operator.', tone: 'text-accent', dot: 'bg-accent' },
+  printing: { icon: Printer, title: 'Being printed', description: 'The PrintF operator is preparing your document.', tone: 'text-accent', dot: 'bg-accent' },
+  completed: { icon: CheckCircle2, title: 'Order completed', description: 'Your document has been printed and delivered.', tone: 'text-success', dot: 'bg-success' },
   failed: { icon: XCircle, title: 'Print failed', description: 'Nothing was charged twice. Start a new job to retry.', tone: 'text-destructive', dot: 'bg-destructive' },
   expired: { icon: Clock, title: 'Job expired', description: 'This job is no longer available. Start a new print.', tone: 'text-muted-foreground', dot: 'bg-muted-foreground' },
 } as const;
@@ -61,7 +61,7 @@ const StatusPage = () => {
               const current = stage === status;
               return <li key={stage} className="flex items-center gap-3">
                 <span className={cn('flex h-5 w-5 items-center justify-center rounded-full text-[0.5625rem] tabular-nums transition-colors duration-500', done && 'bg-accent text-accent-foreground', current && 'bg-foreground text-background', !done && !current && 'bg-muted text-muted-foreground')}>{done ? <CheckCircle2 className="h-3 w-3" /> : index + 1}</span>
-                <span className={cn('text-sm capitalize transition-colors duration-500', current ? 'text-foreground' : 'text-muted-foreground')}>{stage === 'completed' ? 'Collected' : stage}</span>
+                <span className={cn('text-sm capitalize transition-colors duration-500', current ? 'text-foreground' : 'text-muted-foreground')}>{stage === 'completed' ? 'Delivered' : stage === 'ready' ? 'Queued' : stage}</span>
               </li>;
             })}
           </ol>

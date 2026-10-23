@@ -19,11 +19,12 @@ interface PaymentScreenProps {
   amount: number;
   printerName?: string;
   printerLocation?: string;
+  manualFulfilment?: boolean;
   onBack: () => void;
   onSuccess: (details: PaymentCompletion) => void;
 }
 
-export function PaymentScreen({ job, amount, printerName, printerLocation, onBack, onSuccess }: PaymentScreenProps) {
+export function PaymentScreen({ job, amount, printerName, printerLocation, manualFulfilment = false, onBack, onSuccess }: PaymentScreenProps) {
   const { initiatePayment, isProcessing } = usePayment();
   const [customerName, setCustomerName] = useState('');
   const [customerMobile, setCustomerMobile] = useState('');
@@ -56,6 +57,7 @@ export function PaymentScreen({ job, amount, printerName, printerLocation, onBac
       customerMobile: customerMobile.trim(),
       customerEmail: customerEmail.trim().toLowerCase(),
       paymentMethod,
+      manualFulfilment,
       onSuccess,
       onFailure: () => {},
       onCancel: onBack,

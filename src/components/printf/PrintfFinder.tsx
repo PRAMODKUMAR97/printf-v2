@@ -6,7 +6,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { Printf } from '@/types/printf';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
-import { isStationAvailable } from '@/lib/printfAvailability';
+import { isManualFulfilmentStation, isStationOrderable } from '@/lib/printfAvailability';
 
 interface PrintfFinderProps {
   onPrintfSelect: (printf: Printf) => void;
@@ -33,16 +33,11 @@ export const PrintfFinder = forwardRef<HTMLDivElement, PrintfFinderProps>(functi
       const { data, error: fetchError } = await supabase
         .from('printfs_public')
         .select('*')
-        .eq('status', 'online')
         .order('name');
 
       if (fetchError) throw fetchError;
-      // The database status can temporarily remain "online" after the printer PC
-      // loses power or network access. Only an active agent heartbeat makes a
-      // station selectable, so customers never enter a flow that cannot print.
-      setPrintfs(((data || []) as PrintfWithDistance[]).map((printf) => (
-        isStationAvailable(printf) ? printf : { ...printf, status: 'offline' }
-      )));
+      // Manual-fulfilment stations remain orderable while their printer PC is off.
+      setPrintfs(((data || []) as PrintfWithDistance[]).filter((printf) => isStationOrderable(printf)));
       
       if (data && data.length === 0) {
         // No printers found but no error
@@ -170,27 +165,26 @@ export const PrintfFinder = forwardRef<HTMLDivElement, PrintfFinderProps>(functi
       ) : filteredPrintfs.length > 0 ? (
         <div className="space-y-3">
           {filteredPrintfs.map((printf) => {
-            const available = printf.status === 'online';
+            const manualOrderStation = isManualFulfilmentStation(printf);
             return (
             <button
               key={printf.id}
               className={cn(
                 'w-full flex items-center gap-4 p-4 bg-card border border-border rounded-xl transition-all text-left',
-                available ? 'hover:border-success hover:bg-success/5' : 'cursor-not-allowed opacity-70',
+                'hover:border-success hover:bg-success/5',
               )}
               onClick={() => onPrintfSelect(printf)}
-              disabled={!available}
             >
               <div className="flex-1 min-w-0">
                 <p className="font-semibold text-foreground">{printf.name}</p>
-                <p className="text-sm text-muted-foreground truncate">{available ? printf.location : 'Station is reconnecting. Refresh once the printer PC is online.'}</p>
+                <p className="text-sm text-muted-foreground truncate">{manualOrderStation ? 'Orders accepted 24/7 · College delivery within 24 hours' : printf.location}</p>
               </div>
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
                 <div className={cn(
                   'w-2 h-2 rounded-full',
-                  available ? 'bg-success' : 'bg-muted'
+                  'bg-success'
                 )} />
-                <span>{available ? 'Online' : 'Reconnecting'}</span>
+                <span>{manualOrderStation ? 'Open 24/7' : 'Online'}</span>
               </div>
             </button>
             );

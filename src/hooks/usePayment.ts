@@ -19,6 +19,7 @@ export interface PaymentCompletion {
   customer_mobile: string;
   expires_in_seconds: number;
   otp_sent: boolean;
+  manual_fulfilment: boolean;
 }
 
 interface PaymentOptions {
@@ -28,6 +29,7 @@ interface PaymentOptions {
   customerMobile: string;
   customerEmail: string;
   paymentMethod: CheckoutPaymentMethod;
+  manualFulfilment?: boolean;
   onSuccess: (details: PaymentCompletion) => void;
   onFailure: () => void;
   onCancel?: () => void;
@@ -49,7 +51,7 @@ export function usePayment() {
   }), []);
 
   const initiatePayment = useCallback(async ({
-    jobId, amount, customerName, customerMobile, customerEmail, paymentMethod,
+    jobId, amount, customerName, customerMobile, customerEmail, paymentMethod, manualFulfilment = false,
     onSuccess, onFailure, onCancel,
   }: PaymentOptions) => {
     setIsProcessing(true);
@@ -90,6 +92,7 @@ export function usePayment() {
         ...orderCustomer,
         expires_in_seconds: otp.seconds,
         otp_sent: otp.sent,
+        manual_fulfilment: manualFulfilment,
       });
     };
 
@@ -135,7 +138,7 @@ export function usePayment() {
       if (orderNumber !== null) localStorage.setItem('printf_order_number', String(orderNumber));
 
       if (data.already_paid) {
-        const otp = await sendOtp();
+        const otp = manualFulfilment ? { sent: false, seconds: 0 } : await sendOtp();
         const savedMethod: CheckoutPaymentMethod = data.payment_method === 'cod' ? 'cod' : 'razorpay';
         const savedAmount = Number(data.amount ?? amount);
         toast.success('Order #' + (orderNumber ?? '') + ' is already recorded as paid.');
@@ -145,7 +148,7 @@ export function usePayment() {
       }
 
       if (paymentMethod === 'cod' || data.payment_method === 'cod') {
-        const otp = await sendOtp();
+        const otp = manualFulfilment ? { sent: false, seconds: 0 } : await sendOtp();
         if (otp.sent) {
           toast.success('Order #' + (orderNumber ?? '') + ' placed. Verification code sent to email.');
         } else {
@@ -192,8 +195,9 @@ export function usePayment() {
               return;
             }
 
-            const otp = await sendOtp();
-            if (otp.sent) toast.success('Payment verified. Check your email for the print verification code.');
+            const otp = manualFulfilment ? { sent: false, seconds: 0 } : await sendOtp();
+            if (manualFulfilment) toast.success('Payment verified. Your order is in the delivery queue.');
+            else if (otp.sent) toast.success('Payment verified. Check your email for the print verification code.');
             else toast.error('Payment is verified. Resend the print verification code before printing.');
             localStorage.removeItem('printf_order_id');
             localStorage.removeItem('printf_razorpay_order_id');

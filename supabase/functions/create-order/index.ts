@@ -109,7 +109,7 @@ serve(async (req) => {
     }
 
     const { data: job, error: jobError } = await supabase.from("print_jobs")
-      .select("id, status, locked, settings_json").eq("id", job_id).maybeSingle();
+      .select("id, status, locked, settings_json, printfs(name)").eq("id", job_id).maybeSingle();
     if (jobError) {
       console.error("Print job lookup failed:", jobError.message);
       return response({ error: "Unable to validate print job" }, 500);
@@ -122,6 +122,7 @@ serve(async (req) => {
       return response({ error: "Payment amount does not match the recorded print settings. Return to the settings screen and try again." }, 400);
     }
 
+    const manualFulfilment = (job.printfs as { name?: string } | null)?.name?.trim().toLowerCase() === "canara engineering college";
     if (method === "cod") {
       const { data: order, error: orderError } = await supabase.from("print_orders").insert({
         customer_name: customer_name.trim(),
@@ -131,7 +132,7 @@ serve(async (req) => {
         amount: expectedAmount,
         payment_method: "cod",
         payment_status: "pending",
-        order_status: "pending",
+        order_status: manualFulfilment ? "accepted" : "pending",
         cod_collected: false,
       }).select("id, order_number, amount, payment_method, payment_status, order_status, cod_collected").single();
       if (orderError || !order) {

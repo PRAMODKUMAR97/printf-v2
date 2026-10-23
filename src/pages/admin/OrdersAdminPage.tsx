@@ -4,12 +4,14 @@ import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
-import { Loader2, RefreshCw, ShieldCheck, LogOut } from 'lucide-react';
+import { Download, Loader2, RefreshCw, ShieldCheck, LogOut } from 'lucide-react';
 
+type OrderDocument = { file_path: string; file_name: string } | null;
 type Order = {
   id: string; order_number: number; customer_name: string; customer_mobile: string;
   print_job_id: string | null; amount: number; payment_method: 'razorpay' | 'cod';
   payment_status: string; order_status: string; cod_collected: boolean; created_at: string;
+  print_jobs: OrderDocument;
 };
 const STATUSES = ['pending', 'accepted', 'printing', 'completed', 'cancelled', 'failed'];
 
@@ -25,7 +27,7 @@ export default function OrdersAdminPage() {
     if (!isAdmin) return;
     setLoading(true);
     const { data, error } = await (supabase as any).from('print_orders')
-      .select('id, order_number, customer_name, customer_mobile, print_job_id, amount, payment_method, payment_status, order_status, cod_collected, created_at')
+      .select('id, order_number, customer_name, customer_mobile, print_job_id, amount, payment_method, payment_status, order_status, cod_collected, created_at, print_jobs(file_path, file_name)')
       .order('created_at', { ascending: false }).limit(250);
     if (error) {
       console.error('Could not load orders:', error);
@@ -107,6 +109,28 @@ export default function OrdersAdminPage() {
     await loadOrders();
   };
 
+  const downloadDocument = async (order: Order) => {
+    const document = order.print_jobs;
+    if (!document?.file_path) {
+      toast.error('This order does not have a document to download.');
+      return;
+    }
+    const { data, error } = await supabase.storage.from('print-files').createSignedUrl(document.file_path, 120);
+    if (error || !data?.signedUrl) {
+      console.error('Could not create document link:', error);
+      toast.error('Could not open the document. Check storage access.');
+      return;
+    }
+    const link = window.document.createElement('a');
+    link.href = data.signedUrl;
+    link.download = document.file_name || `order-${order.order_number}`;
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';
+    window.document.body.appendChild(link);
+    link.click();
+    link.remove();
+  };
+
   if (authLoading) return <div className="min-h-screen grid place-items-center bg-background"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>;
 
   if (!user) return (
@@ -160,13 +184,13 @@ export default function OrdersAdminPage() {
         </div>
         {loading && orders.length === 0 ? <div className="py-12 text-center"><Loader2 className="h-6 w-6 animate-spin mx-auto" /></div> : (
           <div className="overflow-x-auto border border-border rounded-xl bg-card">
-            <table className="min-w-[1050px] w-full text-sm">
-              <thead className="bg-muted/50 text-muted-foreground"><tr>{['Order / Date', 'Customer', 'Print job', 'Amount', 'Payment', 'Print status', 'Cash collection'].map(h => <th key={h} className="text-left font-medium p-3">{h}</th>)}</tr></thead>
+            <table className="min-w-[1120px] w-full text-sm">
+              <thead className="bg-muted/50 text-muted-foreground"><tr>{['Order / Date', 'Customer', 'Document', 'Amount', 'Payment', 'Print status', 'Cash collection'].map(h => <th key={h} className="text-left font-medium p-3">{h}</th>)}</tr></thead>
               <tbody>
                 {visibleOrders.map(order => <tr key={order.id} className="border-t border-border align-top">
                   <td className="p-3"><p className="font-semibold">#{order.order_number}</p><p className="text-xs text-muted-foreground">{new Date(order.created_at).toLocaleString('en-IN')}</p></td>
                   <td className="p-3"><p className="font-medium">{order.customer_name}</p><p className="text-muted-foreground">{order.customer_mobile}</p></td>
-                  <td className="p-3 max-w-[180px]"><span className="text-xs break-all">{order.print_job_id ?? '—'}</span></td>
+                  <td className="p-3 max-w-[220px]">{order.print_jobs?.file_path ? <div className="space-y-1"><p className="truncate text-xs" title={order.print_jobs.file_name}>{order.print_jobs.file_name}</p><Button size="sm" variant="outline" onClick={() => void downloadDocument(order)}><Download className="mr-1.5 h-3.5 w-3.5" />Download</Button></div> : <span className="text-xs text-muted-foreground">No document</span>}</td>
                   <td className="p-3 font-semibold">₹{Number(order.amount).toFixed(2)}</td>
                   <td className="p-3"><p className="uppercase text-xs font-semibold">{order.payment_method}</p><p className="text-xs text-muted-foreground">{order.payment_status}</p></td>
                   <td className="p-3"><select aria-label={`Status for order ${order.order_number}`} className="h-9 rounded-md border border-border bg-background px-2" value={order.order_status} onChange={(e) => void changeStatus(order, e.target.value)}>{STATUSES.map(status => <option key={status} value={status}>{status}</option>)}</select></td>
