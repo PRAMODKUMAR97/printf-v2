@@ -38,7 +38,7 @@ function constantTimeEqual(left: string, right: string) {
   return result === 0;
 }
 
-async function requireAdmin(request: Request, supabase: ReturnType<typeof createClient>) {
+async function requireAdmin(request: Request, supabase: any) {
   const authorization = request.headers.get("authorization") ?? "";
   const token = authorization.startsWith("Bearer ") ? authorization.slice(7) : "";
   if (!token) return false;
