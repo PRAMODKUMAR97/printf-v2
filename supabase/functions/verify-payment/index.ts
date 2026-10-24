@@ -18,6 +18,15 @@ function constantTimeEqual(a: string, b: string) {
   for (let i = 0; i < a.length; i++) result |= a.charCodeAt(i) ^ b.charCodeAt(i);
   return result === 0;
 }
+function createDeliveryOtp() {
+  const value = new Uint32Array(1);
+  crypto.getRandomValues(value);
+  return String(value[0] % 10000).padStart(4, "0");
+}
+async function hashDeliveryOtp(orderId: string, otp: string, pepper: string) {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`${pepper}:${orderId}:${otp}`));
+  return Array.from(new Uint8Array(digest)).map((item) => item.toString(16).padStart(2, "0")).join("");
+}
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
   if (req.method !== "POST") return response({ error: "Method not allowed" }, 405);
@@ -35,8 +44,9 @@ serve(async (req) => {
     const razorpayKeySecret = Deno.env.get("RAZORPAY_KEY_SECRET");
     const supabaseUrl = Deno.env.get("SUPABASE_URL");
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+    const deliveryOtpPepper = Deno.env.get("DELIVERY_OTP_PEPPER");
     if (!razorpayKeyId || !razorpayKeySecret) return response({ error: "Payment service is not configured" }, 503);
-    if (!supabaseUrl || !serviceKey) return response({ error: "Server configuration error" }, 500);
+    if (!supabaseUrl || !serviceKey || !deliveryOtpPepper) return response({ error: "Server configuration error" }, 500);
 
     const signingKey = await crypto.subtle.importKey(
       "raw", new TextEncoder().encode(razorpayKeySecret),
@@ -88,9 +98,18 @@ serve(async (req) => {
       console.error("Could not mark payment completed:", markPaymentError.message);
       return response({ error: "Could not record verified payment" }, 500);
     }
+    const { data: payableOrder, error: payableOrderError } = await supabase.from("print_orders")
+      .select("id").eq("print_job_id", job_id).eq("payment_method", "razorpay").maybeSingle();
+    if (payableOrderError || !payableOrder) return response({ error: "Payment verified, but the order needs administrator review" }, 500);
+    const deliveryOtp = createDeliveryOtp();
+    const deliveryOtpExpiry = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
     const { data: verifiedOrder, error: markOrderError } = await supabase.from("print_orders").update({
       payment_status: "paid", razorpay_order_id, razorpay_payment_id, order_status: "accepted",
-    }).eq("print_job_id", job_id).eq("payment_method", "razorpay").select("id").maybeSingle();
+      delivery_otp: deliveryOtp,
+      delivery_otp_hash: await hashDeliveryOtp(payableOrder.id, deliveryOtp, deliveryOtpPepper),
+      delivery_otp_expires_at: deliveryOtpExpiry,
+      delivery_otp_attempts: 0,
+    }).eq("id", payableOrder.id).select("id").maybeSingle();
     if (markOrderError || !verifiedOrder) {
       console.error("Could not update PrintF order:", markOrderError?.message ?? "order not found");
       return response({ error: "Payment verified, but order status needs administrator review" }, 500);

@@ -6,13 +6,14 @@ import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
-import { Download, Loader2, RefreshCw, ShieldCheck, LogOut } from 'lucide-react';
+import { Download, Loader2, RefreshCw, ShieldCheck, LogOut, MessageCircle, ReceiptText, BellRing } from 'lucide-react';
 
-type OrderDocument = { file_path: string; file_name: string } | null;
+type OrderDocument = { file_path: string; file_name: string; settings_json?: { page_count?: number; selected_pages?: number; copies?: number; color?: boolean; duplex?: boolean } } | null;
 type Order = {
   id: string; order_number: number; customer_name: string; customer_mobile: string;
   print_job_id: string | null; amount: number; payment_method: 'razorpay' | 'cod';
   payment_status: string; order_status: string; cod_collected: boolean; created_at: string;
+  delivery_otp: string | null; delivery_otp_expires_at: string | null; whatsapp_shared_at: string | null;
   print_jobs: OrderDocument;
 };
 const STATUSES = ['pending', 'accepted', 'printing', 'completed', 'cancelled', 'failed'];
@@ -30,7 +31,7 @@ export default function OrdersAdminPage() {
     if (!isAdmin) return;
     setLoading(true);
     const { data, error } = await (supabase as any).from('print_orders')
-      .select('id, order_number, customer_name, customer_mobile, print_job_id, amount, payment_method, payment_status, order_status, cod_collected, created_at, print_jobs(file_path, file_name)')
+      .select('id, order_number, customer_name, customer_mobile, print_job_id, amount, payment_method, payment_status, order_status, cod_collected, created_at, delivery_otp, delivery_otp_expires_at, whatsapp_shared_at, print_jobs(file_path, file_name, settings_json)')
       .order('created_at', { ascending: false }).limit(250);
     if (error) {
       console.error('Could not load orders:', error);
@@ -153,6 +154,66 @@ export default function OrdersAdminPage() {
     link.remove();
   };
 
+  const downloadBill = (order: Order) => {
+    const settings = order.print_jobs?.settings_json;
+    const pages = settings?.selected_pages ?? settings?.page_count ?? 1;
+    const summary = `${pages} page${pages === 1 ? '' : 's'} · ${settings?.copies ?? 1} cop${(settings?.copies ?? 1) === 1 ? 'y' : 'ies'} · ${settings?.color ? 'Colour' : 'Black & white'} · ${settings?.duplex ? 'Double-sided' : 'Single-sided'}`;
+    const escapePdf = (value: string) => value.replace(/\\/g, '\\\\').replace(/[()]/g, '\\$&');
+    const lines = [
+      'PrintF — Order Bill', `Order ID: #${order.order_number}`, `Date: ${new Date(order.created_at).toLocaleString('en-IN')}`,
+      `Customer: ${order.customer_name}`, `Mobile: ${order.customer_mobile}`, `Document: ${order.print_jobs?.file_name ?? 'Document'}`,
+      `Print summary: ${summary}`, `Payment: ${order.payment_method === 'cod' ? 'Cash on Delivery' : 'Online payment'}`,
+      `Total amount: Rs. ${Number(order.amount).toFixed(2)}`, 'Delivery: Within 24 hours at Canara Engineering College',
+    ];
+    const stream = ['BT', '/F1 17 Tf', '50 790 Td', `(${escapePdf(lines[0])}) Tj`, '/F1 11 Tf', ...lines.slice(1).flatMap((line) => ['0 -28 Td', `(${escapePdf(line)}) Tj`]), 'ET'].join('\n');
+    const objects = [
+      '<< /Type /Catalog /Pages 2 0 R >>',
+      '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+      '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>',
+      '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+      `<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`,
+    ];
+    let pdf = '%PDF-1.4\n';
+    const offsets = [0];
+    objects.forEach((object, index) => { offsets.push(pdf.length); pdf += `${index + 1} 0 obj\n${object}\nendobj\n`; });
+    const xref = pdf.length;
+    pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n${offsets.slice(1).map((offset) => `${String(offset).padStart(10, '0')} 00000 n \n`).join('')}trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF`;
+    const link = window.document.createElement('a');
+    link.href = URL.createObjectURL(new Blob([pdf], { type: 'application/pdf' }));
+    link.download = `PrintF-order-${order.order_number}-bill.pdf`;
+    link.click();
+    URL.revokeObjectURL(link.href);
+  };
+
+  const shareOrderOnWhatsApp = async (order: Order) => {
+    if (order.order_status === 'completed' || ['cancelled', 'failed'].includes(order.order_status)) {
+      toast.error('Only active orders can be shared on WhatsApp.');
+      return;
+    }
+    let otp = order.delivery_otp;
+    const expiresAt = order.delivery_otp_expires_at ? new Date(order.delivery_otp_expires_at).getTime() : 0;
+    if (!otp || expiresAt <= Date.now()) {
+      const { data, error } = await supabase.functions.invoke('delivery-otp', { body: { action: 'prepare', order_id: order.id } });
+      if (error || !data?.success || !data.delivery_otp) {
+        toast.error(data?.error || 'Could not prepare the delivery OTP.');
+        return;
+      }
+      otp = data.delivery_otp;
+      await loadOrders();
+    }
+    const settings = order.print_jobs?.settings_json;
+    const pages = settings?.selected_pages ?? settings?.page_count ?? 1;
+    const summary = `${order.print_jobs?.file_name ?? 'Document'} — ${pages} page${pages === 1 ? '' : 's'}, ${settings?.copies ?? 1} cop${(settings?.copies ?? 1) === 1 ? 'y' : 'ies'}, ${settings?.color ? 'Colour' : 'Black & white'}`;
+    const message = [`Hello ${order.customer_name},`, '', `Your PrintF order #${order.order_number} has been received.`, `Order summary: ${summary}`, `Total amount: ₹${Number(order.amount).toFixed(2)}`, 'Delivery: Within 24 hours at Canara Engineering College.', '', `Delivery OTP: ${otp}`, 'Please share this OTP only when you receive your order.'].join('\n');
+    const mobile = order.customer_mobile.replace(/\D/g, '').replace(/^91(?=\d{10}$)/, '');
+    if (!/^[6-9]\d{9}$/.test(mobile)) { toast.error('This order does not have a valid WhatsApp mobile number.'); return; }
+    const { error: updateError } = await (supabase as any).from('print_orders').update({ whatsapp_shared_at: new Date().toISOString() }).eq('id', order.id);
+    if (updateError) console.error('Could not record WhatsApp handoff:', updateError);
+    window.open(`https://wa.me/91${mobile}?text=${encodeURIComponent(message)}`, '_blank', 'noopener,noreferrer');
+    toast.success('WhatsApp draft opened. Attach the downloaded bill, then send it manually.');
+    await loadOrders();
+  };
+
   if (authLoading) return <div className="min-h-screen grid place-items-center bg-background"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>;
 
   if (!user) return (
@@ -180,6 +241,7 @@ export default function OrdersAdminPage() {
 
   const visibleOrders = statusFilter === 'all' ? orders : orders.filter((order) => order.order_status === statusFilter);
   const codPending = orders.filter(o => o.payment_method === 'cod' && !o.cod_collected && o.order_status !== 'cancelled').length;
+  const newOrders = orders.filter((order) => ['pending', 'accepted'].includes(order.order_status) && Date.now() - new Date(order.created_at).getTime() < 24 * 60 * 60 * 1000);
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -198,6 +260,7 @@ export default function OrdersAdminPage() {
             <div key={card.label} className="bg-card border border-border rounded-xl p-4"><p className="text-xs text-muted-foreground">{card.label}</p><p className="text-2xl font-bold mt-1">{card.value}</p></div>
           ))}
         </div>
+        {newOrders.length > 0 && <div className="flex items-center gap-3 rounded-xl border border-primary/30 bg-primary/5 px-4 py-3 text-sm"><BellRing className="h-5 w-5 text-primary" /><div><span className="font-semibold text-foreground">New order notification</span><span className="ml-1 text-muted-foreground">{newOrders.length} order{newOrders.length === 1 ? '' : 's'} awaiting fulfilment or WhatsApp handoff.</span></div></div>}
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 className="font-semibold">Customer orders</h2>
           <select className="h-10 rounded-lg border border-border bg-card px-3 text-sm" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
@@ -206,8 +269,8 @@ export default function OrdersAdminPage() {
         </div>
         {loading && orders.length === 0 ? <div className="py-12 text-center"><Loader2 className="h-6 w-6 animate-spin mx-auto" /></div> : (
           <div className="overflow-x-auto border border-border rounded-xl bg-card">
-            <table className="min-w-[1120px] w-full text-sm">
-              <thead className="bg-muted/50 text-muted-foreground"><tr>{['Order / Date', 'Customer', 'Document', 'Amount', 'Payment', 'Print status', 'Cash collection'].map(h => <th key={h} className="text-left font-medium p-3">{h}</th>)}</tr></thead>
+            <table className="min-w-[1370px] w-full text-sm">
+              <thead className="bg-muted/50 text-muted-foreground"><tr>{['Order / Date', 'Customer', 'Document', 'Amount', 'Payment', 'WhatsApp & bill', 'Print status', 'Cash collection'].map(h => <th key={h} className="text-left font-medium p-3">{h}</th>)}</tr></thead>
               <tbody>
                 {visibleOrders.map(order => <tr key={order.id} className="border-t border-border align-top">
                   <td className="p-3"><p className="font-semibold">#{order.order_number}</p><p className="text-xs text-muted-foreground">{new Date(order.created_at).toLocaleString('en-IN')}</p></td>
@@ -215,10 +278,11 @@ export default function OrdersAdminPage() {
                   <td className="p-3 max-w-[220px]">{order.print_jobs?.file_path ? <div className="space-y-1"><p className="truncate text-xs" title={order.print_jobs.file_name}>{order.print_jobs.file_name}</p><Button size="sm" variant="outline" onClick={() => void downloadDocument(order)}><Download className="mr-1.5 h-3.5 w-3.5" />Download</Button></div> : <span className="text-xs text-muted-foreground">No document</span>}</td>
                   <td className="p-3 font-semibold">₹{Number(order.amount).toFixed(2)}</td>
                   <td className="p-3"><p className="uppercase text-xs font-semibold">{order.payment_method}</p><p className="text-xs text-muted-foreground">{order.payment_status}</p></td>
+                  <td className="p-3 space-y-2"><Button size="sm" className="w-full" onClick={() => void shareOrderOnWhatsApp(order)} disabled={order.order_status === 'completed' || ['cancelled', 'failed'].includes(order.order_status)}><MessageCircle className="mr-1.5 h-3.5 w-3.5" />Share on WhatsApp</Button><Button size="sm" variant="outline" className="w-full" onClick={() => downloadBill(order)}><ReceiptText className="mr-1.5 h-3.5 w-3.5" />Download bill</Button>{order.whatsapp_shared_at && <p className="text-[11px] text-muted-foreground">Draft opened {new Date(order.whatsapp_shared_at).toLocaleString('en-IN')}</p>}</td>
                   <td className="p-3 space-y-2"><select aria-label={`Status for order ${order.order_number}`} className="h-9 rounded-md border border-border bg-background px-2" value={order.order_status} onChange={(e) => void changeStatus(order, e.target.value)}>{STATUSES.map(status => <option key={status} value={status}>{status}</option>)}</select>{order.order_status !== 'completed' && <Input aria-label={`Delivery OTP for order ${order.order_number}`} className="h-8 w-32 text-xs" inputMode="numeric" maxLength={4} placeholder="Delivery OTP" value={deliveryCodes[order.id] ?? ''} onChange={(event) => setDeliveryCodes((current) => ({ ...current, [order.id]: event.target.value.replace(/\D/g, '').slice(0, 4) }))} />}</td>
                   <td className="p-3">{order.payment_method !== 'cod' ? <span className="text-muted-foreground">Not applicable</span> : order.cod_collected ? <span className="text-success font-semibold">Collected</span> : <Button size="sm" disabled={order.order_status !== 'completed'} title={order.order_status !== 'completed' ? 'Available after printing is complete' : 'Record received COD cash'} onClick={() => void markCashCollected(order)}>Mark collected</Button>}</td>
                 </tr>)}
-                {visibleOrders.length === 0 && <tr><td className="p-8 text-center text-muted-foreground" colSpan={7}>No orders found.</td></tr>}
+                {visibleOrders.length === 0 && <tr><td className="p-8 text-center text-muted-foreground" colSpan={8}>No orders found.</td></tr>}
               </tbody>
             </table>
           </div>

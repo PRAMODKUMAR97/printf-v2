@@ -35,7 +35,6 @@ export interface PaymentCompletion {
   customer_name: string;
   customer_mobile: string;
   manual_fulfilment: boolean;
-  delivery_otp_sent: boolean;
 }
 
 interface PaymentOptions {
@@ -75,20 +74,7 @@ export function usePayment() {
       customer_mobile: customerMobile.trim(),
     };
 
-    const sendDeliveryOtp = async (printOrderId: string | null) => {
-      if (!printOrderId) return false;
-      const { data: sms, error: smsError } = await supabase.functions.invoke('delivery-otp', {
-        body: { action: 'send', order_id: printOrderId },
-      });
-      if (smsError || !sms?.success) {
-        console.error('Delivery SMS error:', smsError ?? sms);
-        toast.error(sms?.error || 'Your order was placed, but we could not send the delivery SMS. Please try again from the order screen.');
-        return false;
-      }
-      return true;
-    };
-
-    const complete = (method: CheckoutPaymentMethod, orderNumber: number | null, printOrderId: string | null, actualAmount: number, deliveryOtpSent: boolean) => {
+    const complete = (method: CheckoutPaymentMethod, orderNumber: number | null, printOrderId: string | null, actualAmount: number) => {
       onSuccess({
         payment_method: method,
         order_number: orderNumber,
@@ -96,7 +82,6 @@ export function usePayment() {
         amount: actualAmount,
         ...orderCustomer,
         manual_fulfilment: manualFulfilment,
-        delivery_otp_sent: deliveryOtpSent,
       });
     };
 
@@ -144,16 +129,14 @@ export function usePayment() {
         const savedAmount = Number(data.amount ?? amount);
         toast.success('Order #' + (orderNumber ?? '') + ' is already recorded as paid.');
         setIsProcessing(false);
-        const smsSent = await sendDeliveryOtp(data.print_order_id ?? null);
-        complete(savedMethod, orderNumber, data.print_order_id ?? null, savedAmount, smsSent);
+        complete(savedMethod, orderNumber, data.print_order_id ?? null, savedAmount);
         return;
       }
 
       if (paymentMethod === 'cod' || data.payment_method === 'cod') {
-        const smsSent = await sendDeliveryOtp(data.print_order_id ?? null);
-        toast.success(smsSent ? 'Order #' + (orderNumber ?? '') + ' placed. The delivery OTP was sent by SMS.' : 'Order #' + (orderNumber ?? '') + ' placed.');
+        toast.success('Order #' + (orderNumber ?? '') + ' placed. The PrintF team will share delivery details on WhatsApp.');
         setIsProcessing(false);
-        complete('cod', orderNumber, data.print_order_id ?? null, confirmedAmount, smsSent);
+        complete('cod', orderNumber, data.print_order_id ?? null, confirmedAmount);
         return;
       }
 
@@ -194,11 +177,10 @@ export function usePayment() {
             }
 
             const printOrderId = verification.print_order_id ?? data.print_order_id ?? null;
-            const smsSent = await sendDeliveryOtp(printOrderId);
-            toast.success(smsSent ? 'Payment verified. Your delivery OTP was sent by SMS.' : 'Payment verified. Your order is in the delivery queue.');
+            toast.success('Payment verified. Your order is in the delivery queue.');
             localStorage.removeItem('printf_order_id');
             localStorage.removeItem('printf_razorpay_order_id');
-            complete('razorpay', orderNumber, printOrderId, amount, smsSent);
+            complete('razorpay', orderNumber, printOrderId, amount);
           } catch (err) {
             console.error('Payment verification error:', err);
             toast.error('Payment verification failed. If charged, contact support.');

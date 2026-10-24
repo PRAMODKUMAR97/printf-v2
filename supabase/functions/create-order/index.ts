@@ -15,6 +15,15 @@ function validCustomer(name: unknown, mobile: unknown) {
   const digits = mobile.replace(/\D/g, "");
   return digits.length >= 8 && digits.length <= 15;
 }
+function createDeliveryOtp() {
+  const value = new Uint32Array(1);
+  crypto.getRandomValues(value);
+  return String(value[0] % 10000).padStart(4, "0");
+}
+async function hashDeliveryOtp(orderId: string, otp: string, pepper: string) {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`${pepper}:${orderId}:${otp}`));
+  return Array.from(new Uint8Array(digest)).map((item) => item.toString(16).padStart(2, "0")).join("");
+}
 function calculateAmount(settingsValue: unknown) {
   const settings = settingsValue && typeof settingsValue === "object" ? settingsValue as Record<string, unknown> : {};
   const copies = Number(settings.copies ?? 1);
@@ -67,7 +76,8 @@ serve(async (req) => {
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL");
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-    if (!supabaseUrl || !serviceKey) return response({ error: "Server configuration error" }, 500);
+    const deliveryOtpPepper = Deno.env.get("DELIVERY_OTP_PEPPER");
+    if (!supabaseUrl || !serviceKey || !deliveryOtpPepper) return response({ error: "Server configuration error" }, 500);
     const supabase = createClient(supabaseUrl, serviceKey);
 
     const { data: job, error: jobError } = await supabase.from("print_jobs")
@@ -124,6 +134,8 @@ serve(async (req) => {
     }
 
     if (method === "cod") {
+      const deliveryOtp = createDeliveryOtp();
+      const deliveryOtpExpiry = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
       const { data: order, error: orderError } = await supabase.from("print_orders").insert({
         customer_name: customer_name.trim(),
         customer_mobile: customerMobile,
@@ -134,10 +146,20 @@ serve(async (req) => {
         payment_status: "pending",
         order_status: "accepted",
         cod_collected: false,
+        delivery_otp: deliveryOtp,
+        delivery_otp_expires_at: deliveryOtpExpiry,
       }).select("id, order_number, amount, payment_method, payment_status, order_status, cod_collected").single();
       if (orderError || !order) {
         console.error("COD order insert failed:", orderError?.message ?? "no row returned");
         return response({ error: "Could not create Cash on Delivery order" }, 500);
+      }
+      const { error: otpHashError } = await supabase.from("print_orders").update({
+        delivery_otp_hash: await hashDeliveryOtp(order.id, deliveryOtp, deliveryOtpPepper),
+        delivery_otp_attempts: 0,
+      }).eq("id", order.id);
+      if (otpHashError) {
+        await supabase.from("print_orders").update({ order_status: "cancelled", delivery_otp: null }).eq("id", order.id);
+        return response({ error: "Could not prepare the delivery OTP" }, 500);
       }
       // Reserve the document for the college delivery window.
       const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();

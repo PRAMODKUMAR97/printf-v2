@@ -1,12 +1,10 @@
 import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
-import { Clock, FileText, Printer, CheckCircle2, XCircle, MessageSquareMore } from 'lucide-react';
+import { Clock, FileText, Printer, CheckCircle2, XCircle, MessageCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { StatusSkeleton } from '@/components/printf/loading/Skeletons';
 import { usePrintFlow } from '@/components/printf/flow/PrintFlowContext';
 import { useRealtimeJob } from '@/hooks/useRealtimeJob';
-import { supabase } from '@/integrations/supabase/client';
-import { toast } from 'sonner';
 
 const STATUS_CONFIG = {
   pending: { icon: Clock, title: 'Order received', description: 'Your document is safely in the college delivery queue.', tone: 'text-muted-foreground', dot: 'bg-muted-foreground' },
@@ -20,8 +18,6 @@ const TIMELINE: Array<keyof typeof STATUS_CONFIG> = ['pending', 'ready', 'printi
 
 const StatusPage = () => {
   const { job, selectedPrinter, reset, setIsPrinting, customerName, customerMobile, orderConfirmation } = usePrintFlow();
-  const [smsSending, setSmsSending] = useState(false);
-  const [smsSent, setSmsSent] = useState(Boolean(orderConfirmation?.delivery_otp_sent));
   const [paymentMethod] = useState<'razorpay' | 'cod'>(() => typeof window !== 'undefined' && window.localStorage.getItem('printf_last_payment_method') === 'cod' ? 'cod' : 'razorpay');
   const [orderNumber] = useState<string | null>(() => typeof window !== 'undefined' ? window.localStorage.getItem('printf_order_number') : null);
   const { job: liveJob } = useRealtimeJob(job?.id ?? null);
@@ -38,18 +34,6 @@ const StatusPage = () => {
   const printMode = settings.color ? 'Colour' : 'Black & white';
   const sides = settings.duplex ? 'Double-sided' : 'Single-sided';
   const layout = `${settings.layout || 1} page${(settings.layout || 1) > 1 ? 's' : ''} per sheet`;
-  const resendDeliveryOtp = async () => {
-    if (!orderConfirmation?.print_order_id) return;
-    setSmsSending(true);
-    const { data, error } = await supabase.functions.invoke('delivery-otp', { body: { action: 'send', order_id: orderConfirmation.print_order_id } });
-    setSmsSending(false);
-    if (error || !data?.success) {
-      toast.error(data?.error || 'Could not send the delivery SMS. Please try again in a minute.');
-      return;
-    }
-    setSmsSent(true);
-    toast.success('A new delivery OTP was sent by SMS.');
-  };
 
   return (
     <div className="container mx-auto px-6 py-14">
@@ -90,7 +74,7 @@ const StatusPage = () => {
             <div className="flex items-center justify-between text-sm"><span className="text-muted-foreground">Print details</span><span className="pl-4 text-right text-foreground">{selectedPages} page{selectedPages === 1 ? '' : 's'} · {sheets} sheet{sheets === 1 ? '' : 's'}</span></div>
             <div className="flex items-center justify-between text-sm"><span className="text-muted-foreground">Print settings</span><span className="pl-4 text-right text-foreground">{printMode} · {sides} · {layout}</span></div>
             <div className="flex items-center justify-between text-sm"><span className="text-muted-foreground">Delivery</span><span className="pl-4 font-medium text-foreground">Within 24 hours</span></div>
-            {status !== 'completed' && <div className="rounded-xl bg-success/10 px-4 py-4 text-center"><MessageSquareMore className="mx-auto h-5 w-5 text-success" /><p className="mt-2 text-sm font-medium text-foreground">{smsSent ? 'Your delivery OTP was sent by SMS.' : 'Your delivery OTP has not been sent yet.'}</p><p className="mt-1 text-xs text-muted-foreground">Share the SMS code with the PrintF operator only when your document is delivered.</p>{!smsSent && orderConfirmation?.print_order_id && <Button className="mt-3" size="sm" variant="outline" disabled={smsSending} onClick={() => void resendDeliveryOtp()}>{smsSending ? 'Sending…' : 'Send delivery OTP'}</Button>}</div>}
+            {status !== 'completed' && <div className="rounded-xl bg-success/10 px-4 py-4 text-center"><MessageCircle className="mx-auto h-5 w-5 text-success" /><p className="mt-2 text-sm font-medium text-foreground">Delivery details will be shared on WhatsApp.</p><p className="mt-1 text-xs text-muted-foreground">Keep the delivery OTP from the PrintF WhatsApp message private until your document is handed over.</p></div>}
           </div>
         </div>
         <Button variant="outline" size="lg" className="w-full" onClick={reset}>Start a new print</Button>
