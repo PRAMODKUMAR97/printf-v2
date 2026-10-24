@@ -33,6 +33,9 @@ verify_jwt = false
 [functions.customer-orders]
 verify_jwt = false
 
+[functions.delivery-otp]
+verify_jwt = false
+
 [functions.secure-payment]
 verify_jwt = false
 

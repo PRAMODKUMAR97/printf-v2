@@ -23,16 +23,15 @@ serve(async (request) => {
     if (!url || !serviceKey) return json({ error: "Server configuration error" }, 500);
     const supabase = createClient(url, serviceKey);
     const { data, error } = await supabase.from("print_orders")
-      .select("order_number, amount, payment_status, order_status, created_at, delivery_otp, delivery_otp_expires_at, print_jobs(file_name, settings_json)")
+      .select("order_number, amount, payment_status, order_status, created_at, delivery_otp_hash, delivery_otp_expires_at, print_jobs(file_name, settings_json)")
       .eq("customer_mobile", digits).order("created_at", { ascending: false }).limit(50);
     if (error) return json({ error: "Could not load orders" }, 500);
 
     const now = Date.now();
-    const orders = (data ?? []).map((order) => ({
+    const orders = (data ?? []).map(({ delivery_otp_hash, delivery_otp_expires_at, ...order }) => ({
       ...order,
-      delivery_otp: order.order_status === "completed" || !order.delivery_otp ||
-        (order.delivery_otp_expires_at && new Date(order.delivery_otp_expires_at).getTime() <= now)
-        ? null : order.delivery_otp,
+      delivery_otp_active: order.order_status !== "completed" && Boolean(delivery_otp_hash) &&
+        Boolean(delivery_otp_expires_at) && new Date(delivery_otp_expires_at).getTime() > now,
     }));
     return json({ success: true, orders });
   } catch {

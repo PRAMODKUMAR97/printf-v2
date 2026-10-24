@@ -50,11 +50,11 @@ export default function OrdersAdminPage() {
         toast.error('Ask the customer for their 4-digit delivery OTP before marking this order delivered.');
         return;
       }
-      const { data, error } = await (supabase as any).from('print_orders')
-        .update({ order_status: 'completed' })
-        .eq('id', order.id).eq('delivery_otp', code).select('id').maybeSingle();
-      if (error || !data) {
-        toast.error('The delivery OTP is incorrect or has expired.');
+      const { data, error } = await supabase.functions.invoke('delivery-otp', {
+        body: { action: 'verify', order_id: order.id, otp: code },
+      });
+      if (error || !data?.success) {
+        toast.error(data?.error || 'The delivery OTP is incorrect or has expired.');
         return;
       }
       setDeliveryCodes((current) => ({ ...current, [order.id]: '' }));
