@@ -17,7 +17,7 @@ const STATUS_CONFIG = {
 const TIMELINE: Array<keyof typeof STATUS_CONFIG> = ['pending', 'ready', 'printing', 'completed'];
 
 const StatusPage = () => {
-  const { job, selectedPrinter, reset, setIsPrinting, customerName, customerMobile } = usePrintFlow();
+  const { job, selectedPrinter, reset, setIsPrinting, customerName, customerMobile, orderConfirmation } = usePrintFlow();
   const [paymentMethod] = useState<'razorpay' | 'cod'>(() => typeof window !== 'undefined' && window.localStorage.getItem('printf_last_payment_method') === 'cod' ? 'cod' : 'razorpay');
   const [orderNumber] = useState<string | null>(() => typeof window !== 'undefined' ? window.localStorage.getItem('printf_order_number') : null);
   const { job: liveJob } = useRealtimeJob(job?.id ?? null);
@@ -74,6 +74,7 @@ const StatusPage = () => {
             <div className="flex items-center justify-between text-sm"><span className="text-muted-foreground">Print details</span><span className="pl-4 text-right text-foreground">{selectedPages} page{selectedPages === 1 ? '' : 's'} · {sheets} sheet{sheets === 1 ? '' : 's'}</span></div>
             <div className="flex items-center justify-between text-sm"><span className="text-muted-foreground">Print settings</span><span className="pl-4 text-right text-foreground">{printMode} · {sides} · {layout}</span></div>
             <div className="flex items-center justify-between text-sm"><span className="text-muted-foreground">Delivery</span><span className="pl-4 font-medium text-foreground">Within 24 hours</span></div>
+            {status !== 'completed' && orderConfirmation?.delivery_otp && <div className="rounded-xl bg-success/10 px-4 py-4 text-center"><p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Delivery OTP</p><p className="mt-1 font-display text-4xl tracking-[0.3em] text-success">{orderConfirmation.delivery_otp}</p><p className="mt-2 text-xs text-muted-foreground">Tell this code to the PrintF operator only when your order is delivered.</p></div>}
           </div>
         </div>
         <Button variant="outline" size="lg" className="w-full" onClick={reset}>Start a new print</Button>

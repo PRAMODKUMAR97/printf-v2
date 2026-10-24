@@ -6,11 +6,6 @@ import { Label } from '@/components/ui/label';
 import { ArrowLeft, Loader2, Lock, Shield, Banknote, CreditCard } from 'lucide-react';
 import { ProgressHairline } from '@/components/printf/loading/Skeletons';
 import { usePayment, type PaymentCompletion } from '@/hooks/usePayment';
-import { PaymentTrustBadges } from './payment/PaymentTrustBadges';
-import { PaymentOrderSummary } from './payment/PaymentOrderSummary';
-import { PaymentPriceBreakdown } from './payment/PaymentPriceBreakdown';
-import { PaymentConfidenceSection } from './payment/PaymentConfidenceSection';
-import { PaymentSupportSection } from './payment/PaymentSupportSection';
 
 type CheckoutPaymentMethod = 'razorpay' | 'cod';
 
@@ -28,7 +23,6 @@ export function PaymentScreen({ job, amount, printerName, printerLocation, manua
   const { initiatePayment, isProcessing } = usePayment();
   const [customerName, setCustomerName] = useState('');
   const [customerMobile, setCustomerMobile] = useState('');
-  const [customerEmail, setCustomerEmail] = useState('');
   const [paymentMethod, setPaymentMethod] = useState<CheckoutPaymentMethod>('razorpay');
   const [validationError, setValidationError] = useState<string | null>(null);
   const settings = job.settings_json;
@@ -45,17 +39,12 @@ export function PaymentScreen({ job, amount, printerName, printerLocation, manua
       setValidationError('Enter a valid mobile number with 10–15 digits.');
       return;
     }
-    if (!manualFulfilment && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(customerEmail.trim())) {
-      setValidationError('Enter a valid email address for your print OTP.');
-      return;
-    }
     setValidationError(null);
     initiatePayment({
       jobId: job.id,
       amount,
       customerName: normalizedName,
       customerMobile: customerMobile.trim(),
-      customerEmail: customerEmail.trim().toLowerCase(),
       paymentMethod,
       manualFulfilment,
       onSuccess,
@@ -83,8 +72,6 @@ export function PaymentScreen({ job, amount, printerName, printerLocation, manua
         </div>
       </div>
 
-      <PaymentTrustBadges />
-
       {isProcessing && (
         <div className="panel-raised overflow-hidden px-0 py-0" aria-busy="true" aria-live="polite">
           <ProgressHairline />
@@ -96,37 +83,31 @@ export function PaymentScreen({ job, amount, printerName, printerLocation, manua
         </div>
       )}
 
-      <div className="space-y-4">
-        <PaymentOrderSummary job={job} printerName={printerName} printerLocation={printerLocation} />
-        <PaymentPriceBreakdown pageCount={settings.selected_pages || pageCount} isColor={settings.color} copies={settings.copies || 1} totalAmount={amount} layout={settings.layout || 1} sheets={settings.sheets} />
-        <PaymentConfidenceSection />
-      </div>
+      <section className="panel-raised flex items-center justify-between gap-4 p-5">
+        <div className="min-w-0">
+          <p className="truncate font-medium text-foreground">{job.file_name}</p>
+          <p className="mt-1 text-sm text-muted-foreground">{settings.selected_pages || pageCount} page{(settings.selected_pages || pageCount) === 1 ? '' : 's'} · {settings.copies || 1} cop{(settings.copies || 1) === 1 ? 'y' : 'ies'} · {printerName || 'Canara Engineering College'}</p>
+        </div>
+        <p className="stat-number shrink-0 text-3xl text-foreground">{formatAmount(amount)}</p>
+      </section>
 
       <section className="panel-raised space-y-4 p-5 sm:p-6" aria-labelledby="customer-details-heading">
         <div>
           <h3 id="customer-details-heading" className="font-display text-xl text-foreground">Customer details</h3>
           <p className="mt-1 text-sm text-muted-foreground">Used for your order record and collection.</p>
         </div>
-        {!manualFulfilment && <div className="space-y-2">
+        <div className="space-y-2">
           <Label htmlFor="customer-name">Full name</Label>
           <Input id="customer-name" name="customer_name" autoComplete="name" placeholder="Enter your name" maxLength={100}
             value={customerName} onChange={(event) => { setCustomerName(event.target.value); setValidationError(null); }}
             disabled={isProcessing} required />
-        </div>}
+        </div>
         <div className="space-y-2">
           <Label htmlFor="customer-mobile">Mobile number</Label>
           <Input id="customer-mobile" name="customer_mobile" type="tel" inputMode="tel" autoComplete="tel"
             placeholder="Enter your mobile number" maxLength={20} value={customerMobile}
             onChange={(event) => { setCustomerMobile(event.target.value); setValidationError(null); }}
             disabled={isProcessing} required />
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="customer-email">Email address</Label>
-          <Input id="customer-email" name="customer_email" type="email" inputMode="email" autoComplete="email"
-            placeholder="Enter your email address" maxLength={254} value={customerEmail}
-            onChange={(event) => { setCustomerEmail(event.target.value); setValidationError(null); }}
-            disabled={isProcessing} required />
-          <p className="text-xs text-muted-foreground">We’ll send your one-time print verification code here.</p>
         </div>
       </section>
 
@@ -157,7 +138,7 @@ export function PaymentScreen({ job, amount, printerName, printerLocation, manua
         </button>
         {paymentMethod === 'cod' && (
           <p className="rounded-lg bg-muted/60 px-4 py-3 text-xs leading-relaxed text-muted-foreground">
-            Your order will be queued after email verification. The station must mark the cash as received before the order is considered paid.
+            Your order will be placed immediately. Pay cash when your document is delivered.
           </p>
         )}
       </section>
@@ -182,7 +163,6 @@ export function PaymentScreen({ job, amount, printerName, printerLocation, manua
         <Button variant="ghost" className="w-full" onClick={onBack} disabled={isProcessing}>Cancel and go back</Button>
       </div>
 
-      <PaymentSupportSection />
       {paymentMethod === 'razorpay' ? (
         <div className="flex items-center justify-center gap-2 pt-1"><Shield className="h-3.5 w-3.5 text-muted-foreground" /><p className="text-xs text-muted-foreground">Secured by <span className="font-medium text-foreground">Razorpay</span></p></div>
       ) : (

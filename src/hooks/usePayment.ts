@@ -3,8 +3,25 @@ import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 
 declare global {
+  interface RazorpayResponse {
+    razorpay_order_id: string;
+    razorpay_payment_id: string;
+    razorpay_signature: string;
+  }
+  interface RazorpayOptions {
+    key: string;
+    amount: number;
+    currency: string;
+    name: string;
+    description: string;
+    order_id: string;
+    prefill: { name: string; contact: string };
+    theme: { color: string };
+    handler: (response: RazorpayResponse) => void | Promise<void>;
+    modal: { ondismiss: () => void; escape: boolean; backdropclose: boolean; confirm_close: boolean };
+  }
   interface Window {
-    Razorpay: any;
+    Razorpay?: new (options: RazorpayOptions) => { open: () => void };
   }
 }
 
@@ -14,12 +31,10 @@ export interface PaymentCompletion {
   payment_method: CheckoutPaymentMethod;
   order_number: number | null;
   amount: number;
-  customer_email: string;
   customer_name: string;
   customer_mobile: string;
-  expires_in_seconds: number;
-  otp_sent: boolean;
   manual_fulfilment: boolean;
+  delivery_otp: string | null;
 }
 
 interface PaymentOptions {
@@ -27,7 +42,6 @@ interface PaymentOptions {
   amount: number;
   customerName: string;
   customerMobile: string;
-  customerEmail: string;
   paymentMethod: CheckoutPaymentMethod;
   manualFulfilment?: boolean;
   onSuccess: (details: PaymentCompletion) => void;
@@ -51,48 +65,23 @@ export function usePayment() {
   }), []);
 
   const initiatePayment = useCallback(async ({
-    jobId, amount, customerName, customerMobile, customerEmail, paymentMethod, manualFulfilment = false,
+    jobId, amount, customerName, customerMobile, paymentMethod, manualFulfilment = false,
     onSuccess, onFailure, onCancel,
   }: PaymentOptions) => {
     setIsProcessing(true);
-    const normalizedEmail = customerEmail.trim().toLowerCase();
     const orderCustomer = {
-      customer_email: normalizedEmail,
       customer_name: customerName.trim(),
       customer_mobile: customerMobile.trim(),
     };
 
-    const sendOtp = async (): Promise<{ sent: boolean; seconds: number }> => {
-      try {
-        const { data, error } = await supabase.functions.invoke('secure-otp', {
-          body: { action: 'send', job_id: jobId, email: normalizedEmail },
-        });
-        if (error || !data?.success) {
-          console.error('OTP send failed:', error ?? data?.error);
-          toast.error(data?.error || 'Order saved, but the OTP email could not be sent. Use Resend OTP.');
-          return { sent: false, seconds: 300 };
-        }
-        const seconds = Number(data.expires_in_seconds) || 300;
-        window.localStorage.setItem('printf_otp_sent_job_id', jobId);
-        window.localStorage.setItem('printf_otp_sent_email', normalizedEmail);
-        window.localStorage.setItem('printf_otp_expires_at', String(Date.now() + seconds * 1000));
-        return { sent: true, seconds };
-      } catch (error) {
-        console.error('OTP send failed:', error);
-        toast.error('Order saved, but the OTP email could not be sent. Use Resend OTP.');
-        return { sent: false, seconds: 300 };
-      }
-    };
-
-    const complete = (method: CheckoutPaymentMethod, orderNumber: number | null, actualAmount: number, otp: {sent: boolean; seconds: number}) => {
+    const complete = (method: CheckoutPaymentMethod, orderNumber: number | null, actualAmount: number, deliveryOtp: string | null) => {
       onSuccess({
         payment_method: method,
         order_number: orderNumber,
         amount: actualAmount,
         ...orderCustomer,
-        expires_in_seconds: otp.seconds,
-        otp_sent: otp.sent,
         manual_fulfilment: manualFulfilment,
+        delivery_otp: deliveryOtp,
       });
     };
 
@@ -109,7 +98,6 @@ export function usePayment() {
 
       localStorage.setItem('printf_payment_job_id', jobId);
       localStorage.setItem('printf_last_payment_method', paymentMethod);
-      localStorage.setItem('printf_customer_email', normalizedEmail);
 
       const { data, error } = await supabase.functions.invoke('create-order', {
         body: {
@@ -117,7 +105,6 @@ export function usePayment() {
           amount,
           customer_name: orderCustomer.customer_name,
           customer_mobile: orderCustomer.customer_mobile,
-          customer_email: normalizedEmail,
           payment_method: paymentMethod,
           callback_url: window.location.origin + '/payment-callback',
         },
@@ -138,24 +125,18 @@ export function usePayment() {
       if (orderNumber !== null) localStorage.setItem('printf_order_number', String(orderNumber));
 
       if (data.already_paid) {
-        const otp = manualFulfilment ? { sent: false, seconds: 0 } : await sendOtp();
         const savedMethod: CheckoutPaymentMethod = data.payment_method === 'cod' ? 'cod' : 'razorpay';
         const savedAmount = Number(data.amount ?? amount);
         toast.success('Order #' + (orderNumber ?? '') + ' is already recorded as paid.');
         setIsProcessing(false);
-        complete(savedMethod, orderNumber, savedAmount, otp);
+        complete(savedMethod, orderNumber, savedAmount, data.delivery_otp ?? null);
         return;
       }
 
       if (paymentMethod === 'cod' || data.payment_method === 'cod') {
-        const otp = manualFulfilment ? { sent: false, seconds: 0 } : await sendOtp();
-        if (otp.sent) {
-          toast.success('Order #' + (orderNumber ?? '') + ' placed. Verification code sent to email.');
-        } else {
-          toast.error('Order #' + (orderNumber ?? '') + ' was saved. Resend the verification code before printing.');
-        }
+        toast.success('Order #' + (orderNumber ?? '') + ' placed. Keep the delivery OTP ready.');
         setIsProcessing(false);
-        complete('cod', orderNumber, confirmedAmount, otp);
+        complete('cod', orderNumber, confirmedAmount, data.delivery_otp ?? null);
         return;
       }
 
@@ -176,9 +157,9 @@ export function usePayment() {
         name: 'PrintF',
         description: 'Print Job Payment',
         order_id: data.order_id,
-        prefill: { name: customerName.trim(), email: normalizedEmail, contact: customerMobile.trim() },
+        prefill: { name: customerName.trim(), contact: customerMobile.trim() },
         theme: { color: '#22c55e' },
-        handler: async (response: any) => {
+        handler: async (response) => {
           try {
             const { data: verification, error: verifyError } = await supabase.functions.invoke('verify-payment', {
               body: {
@@ -195,13 +176,10 @@ export function usePayment() {
               return;
             }
 
-            const otp = manualFulfilment ? { sent: false, seconds: 0 } : await sendOtp();
-            if (manualFulfilment) toast.success('Payment verified. Your order is in the delivery queue.');
-            else if (otp.sent) toast.success('Payment verified. Check your email for the print verification code.');
-            else toast.error('Payment is verified. Resend the print verification code before printing.');
+            toast.success('Payment verified. Your order is in the delivery queue.');
             localStorage.removeItem('printf_order_id');
             localStorage.removeItem('printf_razorpay_order_id');
-            complete('razorpay', orderNumber, amount, otp);
+            complete('razorpay', orderNumber, amount, verification.delivery_otp ?? data.delivery_otp ?? null);
           } catch (err) {
             console.error('Payment verification error:', err);
             toast.error('Payment verification failed. If charged, contact support.');

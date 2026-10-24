@@ -18,6 +18,11 @@ function constantTimeEqual(a: string, b: string) {
   for (let i = 0; i < a.length; i++) result |= a.charCodeAt(i) ^ b.charCodeAt(i);
   return result === 0;
 }
+function createDeliveryOtp() {
+  const value = new Uint32Array(1);
+  crypto.getRandomValues(value);
+  return String(value[0] % 10000).padStart(4, "0");
+}
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -89,13 +94,11 @@ serve(async (req) => {
       console.error("Could not mark payment completed:", markPaymentError.message);
       return response({ error: "Could not record verified payment" }, 500);
     }
-    const manualFulfilment = (job.printfs as { name?: string } | null)?.name?.trim().toLowerCase() === "canara engineering college";
-    const { error: markOrderError } = await supabase.from("print_orders").update({
-      payment_status: "paid", razorpay_order_id, razorpay_payment_id,
-      ...(manualFulfilment ? { order_status: "accepted" } : {}),
-    }).eq("print_job_id", job_id).eq("payment_method", "razorpay");
-    if (markOrderError) {
-      console.error("Could not update PrintF order:", markOrderError.message);
+    const { data: verifiedOrder, error: markOrderError } = await supabase.from("print_orders").update({
+      payment_status: "paid", razorpay_order_id, razorpay_payment_id, order_status: "accepted", delivery_otp: createDeliveryOtp(),
+    }).eq("print_job_id", job_id).eq("payment_method", "razorpay").select("delivery_otp").maybeSingle();
+    if (markOrderError || !verifiedOrder) {
+      console.error("Could not update PrintF order:", markOrderError?.message ?? "order not found");
       return response({ error: "Payment verified, but order status needs administrator review" }, 500);
     }
 
@@ -124,10 +127,10 @@ serve(async (req) => {
     }
 
     await supabase.from("logs").insert({
-      type: "success", message: "Payment verified with Razorpay; awaiting email OTP release", job_id,
+      type: "success", message: "Payment verified with Razorpay; order added to delivery queue", job_id,
       metadata: { razorpay_payment_id, razorpay_order_id, job_status: jobStatus, expiry_time: finalExpiry },
     });
-    return response({ success: true, message: "Payment verified successfully. Check your email for the print OTP.", job_status: jobStatus, expiry_time: finalExpiry, otp_required: true });
+    return response({ success: true, message: "Payment verified successfully.", job_status: jobStatus, expiry_time: finalExpiry, delivery_otp: verifiedOrder.delivery_otp ?? null });
   } catch (error) {
     console.error("verify-payment failed:", error instanceof Error ? error.message : "unknown");
     return response({ error: "Invalid request or internal server error" }, 500);

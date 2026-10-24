@@ -227,19 +227,12 @@ export function usePrintJob() {
 
   const handlePaymentSuccess = useCallback((details: PaymentCompletion) => {
     if (!job) return;
-    setEmail(details.customer_email);
+    setEmail('');
     setCustomerName(details.customer_name);
     setCustomerMobile(details.customer_mobile);
     setOrderConfirmation(details);
-    setOtp({
-      id: '',
-      job_id: job.id,
-      otp_code: '',
-      created_at: new Date().toISOString(),
-      expires_at: new Date(Date.now() + Math.max(60, details.expires_in_seconds || 300) * 1000).toISOString(),
-      used: false,
-    });
-    setStep(details.manual_fulfilment ? 'status' : 'otp');
+    setOtp(null);
+    setStep('status');
   }, [job]);
 
   const updateSettings = useCallback((newSettings: Partial<PrintSettings>) => {

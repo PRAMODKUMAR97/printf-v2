@@ -17,6 +17,7 @@ const EmailOtpPage = lazy(() => import("./pages/flow/EmailOtpPage"));
 const StatusPage = lazy(() => import("./pages/flow/StatusPage"));
 const PaymentCallback = lazy(() => import("./pages/PaymentCallback"));
 const OrdersAdminPage = lazy(() => import("./pages/admin/OrdersAdminPage"));
+const OrderHistoryPage = lazy(() => import("./pages/OrderHistoryPage"));
 
 import {
   AboutPage,
@@ -50,6 +51,7 @@ const App = () => (
             </Route>
             <Route path="/payment-callback" element={<PaymentCallback />} />
             <Route path="/admin/orders" element={<OrdersAdminPage />} />
+            <Route path="/orders" element={<OrderHistoryPage />} />
             <Route path="/about" element={<AboutPage />} />
             <Route path="/contact" element={<ContactPage />} />
             <Route path="/support" element={<SupportPage />} />

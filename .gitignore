@@ -28,3 +28,4 @@ dist-ssr
 printf-agent/config.json
 printf-agent/*.log
 printf-agent/__pycache__/
+supabase/.temp/

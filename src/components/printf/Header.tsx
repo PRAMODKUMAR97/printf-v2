@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 
 const menuLinks = [
+  { label: 'My Orders', to: '/orders' },
   { label: 'About Us', to: '/about' },
   { label: 'Contact Us', to: '/contact' },
   { label: 'Support / Help Center', to: '/support' },

@@ -27,6 +27,11 @@ function calculateAmount(settingsValue: unknown) {
       !Number.isInteger(sheets) || sheets < 1 || sheets > 10000) return null;
   return Math.round(sheets * copies * (settings.color === true ? 10 : 2) * 100) / 100;
 }
+function createDeliveryOtp() {
+  const value = new Uint32Array(1);
+  crypto.getRandomValues(value);
+  return String(value[0] % 10000).padStart(4, "0");
+}
 function checkoutResponse(order: any, payment: any, keyId: string, callbackUrl?: string) {
   return {
     success: true,
@@ -36,6 +41,7 @@ function checkoutResponse(order: any, payment: any, keyId: string, callbackUrl?:
     amount: Math.round(Number(payment.amount) * 100),
     currency: "INR",
     key_id: keyId,
+    delivery_otp: order.delivery_otp ?? null,
     callback_url: callbackUrl,
     checkout_options: {
       key: keyId,
@@ -77,11 +83,8 @@ serve(async (req) => {
       return response({ error: "Unable to validate print job" }, 500);
     }
     if (!job) return response({ error: "Print job not found" }, 404);
-    const manualFulfilment = (job.printfs as { name?: string } | null)?.name?.trim().toLowerCase() === "canara engineering college";
     const customerEmail = typeof customer_email === "string" ? customer_email.trim().toLowerCase() : "";
-    if (!manualFulfilment && (customerEmail.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(customerEmail))) {
-      return response({ error: "A valid customer email is required for print OTP verification" }, 400);
-    }
+    const customerMobile = customer_mobile.replace(/\D/g, "");
 
     const { data: existing, error: existingError } = await supabase.from("print_orders")
       .select("*").eq("print_job_id", job_id).order("created_at", { ascending: false }).limit(1).maybeSingle();
@@ -91,24 +94,23 @@ serve(async (req) => {
     }
     if (existing && existing.order_status !== "cancelled") {
       const sameCustomer = existing.customer_name === customer_name.trim() &&
-        existing.customer_mobile === customer_mobile.trim() &&
-        (manualFulfilment || !existing.customer_email || existing.customer_email.trim().toLowerCase() === customerEmail);
+        existing.customer_mobile === customerMobile;
       if (!sameCustomer) return response({ error: "An order already exists for this print job with different customer details. Start a new print job or contact support." }, 409);
-      if (!manualFulfilment && !existing.customer_email) {
+      if (customerEmail && !existing.customer_email) {
         const { error: emailUpdateError } = await supabase.from("print_orders")
           .update({ customer_email: customerEmail }).eq("id", existing.id);
         if (emailUpdateError) return response({ error: "Could not update the existing order contact" }, 500);
       }
       if (existing.payment_status === "paid" || existing.cod_collected === true) {
         return response({ success: true, already_paid: true, print_order_id: existing.id,
-          order_number: existing.order_number, payment_method: existing.payment_method });
+          order_number: existing.order_number, payment_method: existing.payment_method, delivery_otp: existing.delivery_otp ?? null });
       }
       if (existing.payment_method !== method) {
         return response({ error: "An order already exists for this print job with a different payment method. Please use that order or start a new print job." }, 409);
       }
       if (method === "cod") {
         return response({ success: true, print_order_id: existing.id, order_number: existing.order_number,
-          payment_method: "cod", amount: Number(existing.amount) });
+          payment_method: "cod", amount: Number(existing.amount), delivery_otp: existing.delivery_otp ?? null });
       }
       const razorpayKeyId = Deno.env.get("RAZORPAY_KEY_ID");
       if (!razorpayKeyId || !existing.razorpay_order_id) return response({ error: "Payment service is not configured" }, 503);
@@ -127,18 +129,20 @@ serve(async (req) => {
       return response({ error: "Payment amount does not match the recorded print settings. Return to the settings screen and try again." }, 400);
     }
 
+    const deliveryOtp = createDeliveryOtp();
     if (method === "cod") {
       const { data: order, error: orderError } = await supabase.from("print_orders").insert({
         customer_name: customer_name.trim(),
-        customer_mobile: customer_mobile.trim(),
+        customer_mobile: customerMobile,
         customer_email: customerEmail || null,
         print_job_id: job_id,
         amount: expectedAmount,
         payment_method: "cod",
         payment_status: "pending",
-        order_status: manualFulfilment ? "accepted" : "pending",
+        order_status: "accepted",
         cod_collected: false,
-      }).select("id, order_number, amount, payment_method, payment_status, order_status, cod_collected").single();
+        delivery_otp: deliveryOtp,
+      }).select("id, order_number, amount, payment_method, payment_status, order_status, cod_collected, delivery_otp").single();
       if (orderError || !order) {
         console.error("COD order insert failed:", orderError?.message ?? "no row returned");
         return response({ error: "Could not create Cash on Delivery order" }, 500);
@@ -157,7 +161,7 @@ serve(async (req) => {
       await supabase.from("logs").insert({ type: "info", message: "Cash on Delivery order created", job_id,
         metadata: { order_number: order.order_number, amount: expectedAmount } });
       return response({ success: true, print_order_id: order.id, order_number: order.order_number,
-        payment_method: "cod", amount: expectedAmount, already_paid: false });
+        payment_method: "cod", amount: expectedAmount, delivery_otp: order.delivery_otp, already_paid: false });
     }
 
     const razorpayKeyId = Deno.env.get("RAZORPAY_KEY_ID");
@@ -181,7 +185,7 @@ serve(async (req) => {
 
     const { data: printOrder, error: printOrderError } = await supabase.from("print_orders").insert({
       customer_name: customer_name.trim(),
-      customer_mobile: customer_mobile.trim(),
+      customer_mobile: customerMobile,
       customer_email: customerEmail || null,
       print_job_id: job_id,
       amount: expectedAmount,
@@ -190,7 +194,8 @@ serve(async (req) => {
       order_status: "pending",
       cod_collected: false,
       razorpay_order_id: razorpayOrder.id,
-    }).select("id, order_number, amount, payment_method, payment_status, order_status, cod_collected, razorpay_order_id").single();
+      delivery_otp: null,
+    }).select("id, order_number, amount, payment_method, payment_status, order_status, cod_collected, razorpay_order_id, delivery_otp").single();
     if (printOrderError || !printOrder) {
       console.error("Print order insert failed:", printOrderError?.message ?? "no row returned");
       return response({ error: "Could not save the order record" }, 500);

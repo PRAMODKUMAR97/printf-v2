@@ -1,3 +1,5 @@
+/* The generated database types predate print_orders; admin access is RLS-protected server-side. */
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { useCallback, useEffect, useState } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
@@ -22,6 +24,7 @@ export default function OrdersAdminPage() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(false);
   const [statusFilter, setStatusFilter] = useState('all');
+  const [deliveryCodes, setDeliveryCodes] = useState<Record<string, string>>({});
 
   const loadOrders = useCallback(async () => {
     if (!isAdmin) return;
@@ -40,6 +43,25 @@ export default function OrdersAdminPage() {
 
   const changeStatus = async (order: Order, nextStatus: string) => {
     if (!STATUSES.includes(nextStatus) || nextStatus === order.order_status) return;
+
+    if (nextStatus === 'completed') {
+      const code = (deliveryCodes[order.id] || '').trim();
+      if (!/^\d{4}$/.test(code)) {
+        toast.error('Ask the customer for their 4-digit delivery OTP before marking this order delivered.');
+        return;
+      }
+      const { data, error } = await (supabase as any).from('print_orders')
+        .update({ order_status: 'completed' })
+        .eq('id', order.id).eq('delivery_otp', code).select('id').maybeSingle();
+      if (error || !data) {
+        toast.error('The delivery OTP is incorrect or has expired.');
+        return;
+      }
+      setDeliveryCodes((current) => ({ ...current, [order.id]: '' }));
+      toast.success(`Order #${order.order_number} delivered. The OTP has expired.`);
+      await loadOrders();
+      return;
+    }
 
     const jobStatusForOrder: Record<string, string> = {
       pending: 'pending',
@@ -193,7 +215,7 @@ export default function OrdersAdminPage() {
                   <td className="p-3 max-w-[220px]">{order.print_jobs?.file_path ? <div className="space-y-1"><p className="truncate text-xs" title={order.print_jobs.file_name}>{order.print_jobs.file_name}</p><Button size="sm" variant="outline" onClick={() => void downloadDocument(order)}><Download className="mr-1.5 h-3.5 w-3.5" />Download</Button></div> : <span className="text-xs text-muted-foreground">No document</span>}</td>
                   <td className="p-3 font-semibold">₹{Number(order.amount).toFixed(2)}</td>
                   <td className="p-3"><p className="uppercase text-xs font-semibold">{order.payment_method}</p><p className="text-xs text-muted-foreground">{order.payment_status}</p></td>
-                  <td className="p-3"><select aria-label={`Status for order ${order.order_number}`} className="h-9 rounded-md border border-border bg-background px-2" value={order.order_status} onChange={(e) => void changeStatus(order, e.target.value)}>{STATUSES.map(status => <option key={status} value={status}>{status}</option>)}</select></td>
+                  <td className="p-3 space-y-2"><select aria-label={`Status for order ${order.order_number}`} className="h-9 rounded-md border border-border bg-background px-2" value={order.order_status} onChange={(e) => void changeStatus(order, e.target.value)}>{STATUSES.map(status => <option key={status} value={status}>{status}</option>)}</select>{order.order_status !== 'completed' && <Input aria-label={`Delivery OTP for order ${order.order_number}`} className="h-8 w-32 text-xs" inputMode="numeric" maxLength={4} placeholder="Delivery OTP" value={deliveryCodes[order.id] ?? ''} onChange={(event) => setDeliveryCodes((current) => ({ ...current, [order.id]: event.target.value.replace(/\D/g, '').slice(0, 4) }))} />}</td>
                   <td className="p-3">{order.payment_method !== 'cod' ? <span className="text-muted-foreground">Not applicable</span> : order.cod_collected ? <span className="text-success font-semibold">Collected</span> : <Button size="sm" disabled={order.order_status !== 'completed'} title={order.order_status !== 'completed' ? 'Available after printing is complete' : 'Record received COD cash'} onClick={() => void markCashCollected(order)}>Mark collected</Button>}</td>
                 </tr>)}
                 {visibleOrders.length === 0 && <tr><td className="p-8 text-center text-muted-foreground" colSpan={7}>No orders found.</td></tr>}
