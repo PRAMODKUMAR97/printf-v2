@@ -1,5 +1,5 @@
-import { useState, useEffect, forwardRef, useCallback } from 'react';
-import { Search, MapPin, Crosshair, QrCode, RefreshCw, WifiOff, AlertCircle } from 'lucide-react';
+import { forwardRef, useCallback, useEffect, useState } from 'react';
+import { AlertCircle, ArrowUpRight, Crosshair, QrCode, RefreshCw, Search, WifiOff } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { supabase } from '@/integrations/supabase/client';
@@ -17,18 +17,20 @@ interface PrintfWithDistance extends Printf {
   distance?: number;
 }
 
-export const PrintfFinder = forwardRef<HTMLDivElement, PrintfFinderProps>(function PrintfFinder({ onPrintfSelect, onScanQR }, ref) {
+export const PrintfFinder = forwardRef<HTMLDivElement, PrintfFinderProps>(function PrintfFinder(
+  { onPrintfSelect, onScanQR },
+  ref,
+) {
   const [searchQuery, setSearchQuery] = useState('');
   const [printfs, setPrintfs] = useState<PrintfWithDistance[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [isGettingLocation, setIsGettingLocation] = useState(false);
 
-  // Fetch printfs from database
   const fetchPrintfs = useCallback(async () => {
     setIsLoading(true);
     setError(null);
+
     try {
       const { data, error: fetchError } = await supabase
         .from('printfs_public')
@@ -36,13 +38,10 @@ export const PrintfFinder = forwardRef<HTMLDivElement, PrintfFinderProps>(functi
         .order('name');
 
       if (fetchError) throw fetchError;
-      // Manual-fulfilment stations remain orderable while their printer PC is off.
-      setPrintfs(((data || []) as PrintfWithDistance[]).filter((printf) => isStationOrderable(printf)));
-      
-      if (data && data.length === 0) {
-        // No printers found but no error
-        setError(null);
-      }
+
+      // Canara Engineering College accepts manual print orders all day, even while
+      // the printer computer is not sending a live heartbeat.
+      setPrintfs(((data || []) as PrintfWithDistance[]).filter(isStationOrderable));
     } catch (err) {
       console.error('Error fetching PrintFs:', err);
       setError('Unable to load printers. Please check your connection.');
@@ -56,7 +55,6 @@ export const PrintfFinder = forwardRef<HTMLDivElement, PrintfFinderProps>(functi
     fetchPrintfs();
   }, [fetchPrintfs]);
 
-  // Get user's current location
   const getUserLocation = () => {
     if (!navigator.geolocation) {
       toast.error('Geolocation is not supported by your browser');
@@ -65,24 +63,19 @@ export const PrintfFinder = forwardRef<HTMLDivElement, PrintfFinderProps>(functi
 
     setIsGettingLocation(true);
     navigator.geolocation.getCurrentPosition(
-      (position) => {
-        setUserLocation({
-          lat: position.coords.latitude,
-          lng: position.coords.longitude,
-        });
-        toast.success('Location found! Showing nearest PrintFs');
+      () => {
+        toast.success('Location found! Search for the closest PrintF station.');
         setIsGettingLocation(false);
       },
-      (error) => {
-        console.error('Geolocation error:', error);
+      (locationError) => {
+        console.error('Geolocation error:', locationError);
         toast.error('Unable to get your location. Please search manually.');
         setIsGettingLocation(false);
       },
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 },
     );
   };
 
-  // Filter printfs based on search
   const filteredPrintfs = printfs.filter((printf) => {
     const query = searchQuery.toLowerCase();
     return (
@@ -97,150 +90,145 @@ export const PrintfFinder = forwardRef<HTMLDivElement, PrintfFinderProps>(functi
   };
 
   return (
-    <div ref={ref} className="w-full max-w-2xl mx-auto">
-      {/* Search Bar */}
-      <div className="flex items-center gap-2 mb-6">
+    <div ref={ref} className="mx-auto w-full max-w-3xl">
+      <div className="mb-10 max-w-xl animate-rise">
+        <p className="eyebrow">Step one</p>
+        <h1 className="mt-3 font-display text-display-sm text-foreground balance">
+          Choose a station <span className="italic text-muted-foreground">near you</span>
+        </h1>
+        <p className="mt-4 text-base leading-relaxed text-muted-foreground">
+          Every PrintF station reports its own status. Pick one from the live list, or scan the
+          code printed on the machine in front of you.
+        </p>
+      </div>
+
+      <div className="mb-8 flex items-center gap-2">
         <div className="relative flex-1">
-          <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
+          <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             type="text"
-            placeholder="Search store location"
+            placeholder="Search by name or location"
             value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="pl-12 h-12 rounded-xl border-border bg-card"
+            onChange={(event) => setSearchQuery(event.target.value)}
+            className="h-12 rounded-xl pl-11"
           />
         </div>
         <Button
           variant="outline"
           size="icon"
-          className="h-12 w-12 rounded-xl flex-shrink-0"
+          className="h-12 w-12 shrink-0 rounded-xl"
           onClick={handleRetry}
           disabled={isLoading}
           title="Refresh list"
         >
-          <RefreshCw className={cn("w-5 h-5", isLoading && "animate-spin")} />
+          <RefreshCw className={cn('h-4 w-4', isLoading && 'animate-spin')} />
         </Button>
         <Button
           variant="outline"
           size="icon"
-          className="h-12 w-12 rounded-xl flex-shrink-0"
+          className="h-12 w-12 shrink-0 rounded-xl"
           onClick={getUserLocation}
           disabled={isGettingLocation}
           title="Use my location"
         >
           {isGettingLocation ? (
-            <span className="w-5 h-5 border-2 border-muted-foreground/30 border-t-muted-foreground rounded-full animate-spin" />
+            <span className="h-4 w-4 animate-spin rounded-full border-2 border-muted-foreground/30 border-t-muted-foreground" />
           ) : (
-            <Crosshair className="w-5 h-5" />
+            <Crosshair className="h-4 w-4" />
           )}
         </Button>
       </div>
 
-      {/* Content Area */}
       {isLoading ? (
-        <div className="text-center py-12">
-          <span className="w-8 h-8 border-2 border-success/30 border-t-success rounded-full animate-spin inline-block" />
-          <p className="text-muted-foreground mt-4">Finding nearby PrintFs...</p>
+        <div className="panel px-6 py-16 text-center">
+          <span className="inline-block h-7 w-7 animate-spin rounded-full border-2 border-success/30 border-t-success" />
+          <p className="mt-4 text-sm text-muted-foreground">Finding nearby PrintF stations...</p>
         </div>
       ) : error ? (
-        /* Error State */
-        <div className="text-center py-12">
-          <div className="w-20 h-20 mx-auto mb-6 bg-destructive/10 rounded-full flex items-center justify-center">
-            <WifiOff className="w-10 h-10 text-destructive" />
+        <div className="panel px-6 py-16 text-center">
+          <div className="mx-auto mb-6 flex h-14 w-14 items-center justify-center rounded-2xl border border-destructive/20 bg-destructive/5">
+            <WifiOff className="h-6 w-6 text-destructive" />
           </div>
-          <h3 className="text-xl font-bold text-foreground mb-2 font-display">
-            Connection Error
-          </h3>
-          <p className="text-muted-foreground max-w-sm mx-auto mb-6">
-            {error}
-          </p>
-          <Button
-            onClick={handleRetry}
-            className="bg-primary hover:bg-primary/90"
-          >
-            <RefreshCw className="w-4 h-4 mr-2" />
-            Try Again
+          <h3 className="font-display text-2xl text-foreground">Connection lost</h3>
+          <p className="mx-auto mt-3 max-w-sm text-sm leading-relaxed text-muted-foreground">{error}</p>
+          <Button onClick={handleRetry} className="mt-7">
+            <RefreshCw className="mr-2 h-4 w-4" />
+            Try again
           </Button>
         </div>
       ) : filteredPrintfs.length > 0 ? (
-        <div className="space-y-3">
-          {filteredPrintfs.map((printf) => {
+        <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-elev-1">
+          {filteredPrintfs.map((printf, index) => {
             const manualOrderStation = isManualFulfilmentStation(printf);
+
             return (
-            <button
-              key={printf.id}
-              className={cn(
-                'w-full flex items-center gap-4 p-4 bg-card border border-border rounded-xl transition-all text-left',
-                'hover:border-success hover:bg-success/5',
-              )}
-              onClick={() => onPrintfSelect(printf)}
-            >
-              <div className="flex-1 min-w-0">
-                <p className="font-semibold text-foreground">{printf.name}</p>
-                <p className="text-sm text-muted-foreground truncate">{manualOrderStation ? 'Orders accepted 24/7 · College delivery within 24 hours' : printf.location}</p>
-              </div>
-              <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <div className={cn(
-                  'w-2 h-2 rounded-full',
-                  'bg-success'
-                )} />
-                <span>{manualOrderStation ? 'Open 24/7' : 'Online'}</span>
-              </div>
-            </button>
+              <button
+                key={printf.id}
+                className={cn(
+                  'accent-rule group flex w-full items-center gap-5 px-6 py-5 text-left transition-colors duration-300',
+                  'hover:bg-surface-sunken',
+                  index !== 0 && 'border-t border-border',
+                )}
+                onClick={() => onPrintfSelect(printf)}
+                style={{ animationDelay: `${index * 45}ms` }}
+              >
+                <span className="w-6 shrink-0 text-xs tabular-nums tracking-[0.08em] text-muted-foreground/70">
+                  {String(index + 1).padStart(2, '0')}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate font-medium tracking-[-0.01em] text-foreground">
+                    {printf.name}
+                  </p>
+                  <p className="mt-0.5 truncate text-sm text-muted-foreground">
+                    {manualOrderStation
+                      ? 'Orders accepted 24/7 · College delivery within 24 hours'
+                      : printf.location}
+                  </p>
+                </div>
+                <span className="hidden items-center gap-2 text-xs uppercase tracking-[0.12em] text-muted-foreground sm:flex">
+                  <span className="h-1.5 w-1.5 rounded-full bg-accent" />
+                  {manualOrderStation ? 'Open 24/7' : 'Online'}
+                </span>
+                <ArrowUpRight className="h-4 w-4 shrink-0 text-muted-foreground transition-all duration-300 ease-out-soft group-hover:-translate-y-0.5 group-hover:translate-x-0.5 group-hover:text-foreground" />
+              </button>
             );
           })}
         </div>
       ) : searchQuery ? (
-        /* No search results */
-        <div className="text-center py-12">
-          <Search className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
-          <p className="text-muted-foreground mb-4">No PrintFs found for "{searchQuery}"</p>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setSearchQuery('')}
-          >
-            Clear Search
+        <div className="panel px-6 py-16 text-center">
+          <Search className="mx-auto mb-5 h-5 w-5 text-muted-foreground" />
+          <p className="text-sm text-muted-foreground">Nothing matches “{searchQuery}”</p>
+          <Button variant="outline" size="sm" className="mt-6" onClick={() => setSearchQuery('')}>
+            Clear search
           </Button>
         </div>
       ) : (
-        /* No printers available */
-        <div className="text-center py-12">
-          <div className="w-20 h-20 mx-auto mb-6 bg-muted/50 rounded-full flex items-center justify-center">
-            <AlertCircle className="w-10 h-10 text-muted-foreground" />
+        <div className="panel px-6 py-16 text-center">
+          <div className="mx-auto mb-6 flex h-14 w-14 items-center justify-center rounded-2xl border border-border bg-surface-sunken">
+            <AlertCircle className="h-6 w-6 text-muted-foreground" />
           </div>
-          <h3 className="text-xl font-bold text-foreground mb-2 font-display">
-            No Printers Available
-          </h3>
-          <p className="text-muted-foreground max-w-sm mx-auto mb-6">
-            There are no PrintF printers online at the moment. Try again later or scan a QR code directly.
+          <h3 className="font-display text-2xl text-foreground">No stations online</h3>
+          <p className="mx-auto mt-3 max-w-sm text-sm leading-relaxed text-muted-foreground">
+            Nothing is reporting in right now. Refresh in a moment, or scan the code on a
+            machine directly.
           </p>
-          <Button
-            onClick={handleRetry}
-            variant="outline"
-          >
-            <RefreshCw className="w-4 h-4 mr-2" />
+          <Button onClick={handleRetry} variant="outline" className="mt-7">
+            <RefreshCw className="mr-2 h-4 w-4" />
             Refresh
           </Button>
         </div>
       )}
 
-      {/* Scan QR Button - Fixed at bottom */}
-      <div className="fixed bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-background via-background to-transparent">
-        <Button
-          className={cn(
-            'w-full h-14 rounded-xl text-lg font-semibold',
-            'bg-success hover:bg-success/90 text-success-foreground'
-          )}
-          onClick={onScanQR}
-        >
-          <QrCode className="w-5 h-5 mr-2" />
-          Scan QR
-        </Button>
+      <div className="pointer-events-none fixed bottom-0 left-0 right-0 z-40 bg-gradient-to-t from-background via-background/95 to-transparent px-6 pb-6 pt-12">
+        <div className="pointer-events-auto mx-auto max-w-3xl">
+          <Button variant="secondary" className="h-14 w-full rounded-xl text-base" onClick={onScanQR}>
+            <QrCode className="mr-2 h-5 w-5" />
+            Scan station code
+          </Button>
+        </div>
       </div>
 
-      {/* Spacer for fixed button */}
-      <div className="h-24" />
+      <div className="h-28" />
     </div>
   );
 });
