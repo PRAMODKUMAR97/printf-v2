@@ -41,6 +41,17 @@ export default function OrdersAdminPage() {
   }, [isAdmin]);
 
   useEffect(() => { void loadOrders(); }, [loadOrders]);
+  useEffect(() => {
+    if (!isAdmin) return;
+    const channel = supabase.channel('admin-order-notifications').on('postgres_changes', {
+      event: 'INSERT', schema: 'public', table: 'print_orders',
+    }, (event) => {
+      const order = event.new as { order_number?: number; customer_name?: string };
+      toast.info(`New order #${order.order_number ?? ''} from ${order.customer_name ?? 'a customer'}`);
+      void loadOrders();
+    }).subscribe();
+    return () => { void supabase.removeChannel(channel); };
+  }, [isAdmin, loadOrders]);
 
   const changeStatus = async (order: Order, nextStatus: string) => {
     if (!STATUSES.includes(nextStatus) || nextStatus === order.order_status) return;
@@ -260,7 +271,7 @@ export default function OrdersAdminPage() {
             <div key={card.label} className="bg-card border border-border rounded-xl p-4"><p className="text-xs text-muted-foreground">{card.label}</p><p className="text-2xl font-bold mt-1">{card.value}</p></div>
           ))}
         </div>
-        {newOrders.length > 0 && <div className="flex items-center gap-3 rounded-xl border border-primary/30 bg-primary/5 px-4 py-3 text-sm"><BellRing className="h-5 w-5 text-primary" /><div><span className="font-semibold text-foreground">New order notification</span><span className="ml-1 text-muted-foreground">{newOrders.length} order{newOrders.length === 1 ? '' : 's'} awaiting fulfilment or WhatsApp handoff.</span></div></div>}
+        {newOrders.length > 0 && <div className="flex items-start gap-3 rounded-xl border border-primary/30 bg-primary/5 px-4 py-3 text-sm"><BellRing className="mt-0.5 h-5 w-5 shrink-0 text-primary" /><div><p><span className="font-semibold text-foreground">New order notification</span><span className="ml-1 text-muted-foreground">{newOrders.length} order{newOrders.length === 1 ? '' : 's'} awaiting fulfilment or WhatsApp handoff.</span></p><div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">{newOrders.slice(0, 3).map((order) => <span key={order.id}>#{order.order_number} · {order.customer_name} · ₹{Number(order.amount).toFixed(2)}</span>)}</div></div></div>}
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 className="font-semibold">Customer orders</h2>
           <select className="h-10 rounded-lg border border-border bg-card px-3 text-sm" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
