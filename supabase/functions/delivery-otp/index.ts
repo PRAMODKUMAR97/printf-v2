@@ -127,9 +127,19 @@ serve(async (request) => {
       }),
     });
     if (!smsResponse.ok) {
+      const providerBody = await smsResponse.text();
+      let providerMessage = `SMS provider returned HTTP ${smsResponse.status}`;
+      try {
+        const parsed = JSON.parse(providerBody);
+        const candidate = parsed?.message ?? parsed?.return ?? parsed?.error ?? parsed?.description;
+        if (typeof candidate === "string" && candidate.trim()) providerMessage = candidate.trim().slice(0, 240);
+      } catch {
+        if (providerBody.trim()) providerMessage = providerBody.trim().slice(0, 240);
+      }
       await supabase.from("print_orders").update({ delivery_otp_hash: null, delivery_otp_expires_at: null, delivery_otp_sent_at: null, delivery_otp_attempts: 0 }).eq("id", order.id);
-      console.error("Fast2SMS delivery OTP request failed:", smsResponse.status);
-      return response({ error: "Could not send the delivery SMS. Please try again later." }, 502);
+      console.error("Fast2SMS delivery OTP request failed:", smsResponse.status, providerMessage);
+      await supabase.from("logs").insert({ type: "error", message: "Delivery OTP SMS failed", metadata: { order_number: order.order_number, provider_status: smsResponse.status, provider_message: providerMessage } });
+      return response({ error: "Could not send the delivery SMS. Please try again later.", provider_error: providerMessage }, 502);
     }
     await supabase.from("logs").insert({ type: "info", message: "Delivery OTP SMS sent", job_id: null, metadata: { order_number: order.order_number } });
     return response({ success: true, expires_at: expiresAt });
